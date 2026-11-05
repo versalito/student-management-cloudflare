@@ -445,6 +445,14 @@ export class LocalRepository implements IRepository {
       if (query.classId && slot.classId !== query.classId) return false;
       if (query.classIds && !query.classIds.includes(slot.classId)) return false;
       if (query.teacherId && slot.teacherId !== query.teacherId) return false;
+      if (query.sectionIds && query.sectionIds.length > 0) {
+        const inSection = !!slot.sectionId && query.sectionIds.includes(slot.sectionId);
+        const unsectioned =
+          query.includeUnsectioned === true &&
+          !slot.sectionId &&
+          (!query.classIds || query.classIds.includes(slot.classId));
+        if (!inSection && !unsectioned) return false;
+      }
       if (query.excludeCancelled && slot.status === 'Đã hủy') return false;
       return true;
     });

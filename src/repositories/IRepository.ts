@@ -20,6 +20,13 @@ export interface ScheduleSlotQuery {
   classId?: string;
   classIds?: string[];
   teacherId?: string;
+  /** Chỉ lấy buổi thuộc các ca này (ca = lớp + khung giờ; học sinh học theo ca). */
+  sectionIds?: string[];
+  /**
+   * Khi lọc theo `sectionIds`: vẫn lấy các buổi cũ chưa gán ca (`section_id IS NULL`)
+   * của những lớp trong `classIds`, đúng như hành vi portal học sinh.
+   */
+  includeUnsectioned?: boolean;
   excludeCancelled?: boolean;
 }
 

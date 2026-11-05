@@ -1,7 +1,9 @@
 import { repo } from '@/repositories';
 import type { ScheduleSlotQuery } from '@/repositories/IRepository';
+import type { ClassSection } from '@/types/classroom';
 import { NextResponse } from 'next/server';
 import { ConflictEngine } from '@/services/ConflictEngine';
+import { dateToDayOfWeek } from '@/utils/date';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,17 +17,31 @@ export async function GET(request: Request) {
   try {
     const query: ScheduleSlotQuery = {
       date: date || undefined,
+      dateFrom: searchParams.get('from') || undefined,
+      dateTo: searchParams.get('to') || undefined,
       classId: classId || undefined,
       teacherId: teacherId || undefined,
     };
 
-    // Học viên: chỉ đọc join table ghi danh (1 query nhỏ) rồi lọc slot theo lớp,
-    // thay vì đọc toàn bộ classes + toàn bộ slots.
+    // Học sinh chỉ thấy buổi thuộc ca mình tham gia (và đúng thứ đã chọn trong ca).
+    // 1 query lấy ca + thứ riêng, 1 query lấy slot đã lọc ở SQL — không đọc toàn bảng.
+    let studentSections: ClassSection[] | null = null;
+    let studentDaysBySection = new Map<string, number[]>();
     if (studentId) {
-      const memberships = await repo.getClassMemberships({ studentId });
-      const classIds = Array.from(new Set(memberships.map(m => m.classId)));
-      if (classIds.length === 0) return NextResponse.json({ slots: [] });
+      studentSections = await repo.getSectionsByStudentId(studentId);
+      if (studentSections.length === 0) return NextResponse.json({ slots: [] });
+
+      const sectionIds = Array.from(new Set(studentSections.map(s => s.id)));
+      const classIds = Array.from(new Set(studentSections.map(s => s.classId)));
+      query.sectionIds = sectionIds;
+      query.includeUnsectioned = true;
       query.classIds = classIds;
+      query.excludeCancelled = true;
+      for (const sec of studentSections) {
+        // Thứ riêng của học sinh trong ca; nếu chưa chọn thì dùng thứ của ca.
+        const chosen = sec.studentScheduleDays?.[studentId] || [];
+        studentDaysBySection.set(sec.id, chosen.length > 0 ? chosen : sec.scheduleDays || []);
+      }
     }
 
     // Bảng slots là bảng lớn nên lọc ngay ở tầng dữ liệu; classes/sections/teachers
@@ -33,7 +49,7 @@ export async function GET(request: Request) {
     const [rawSlots, allClasses, allSections, allTeachers] = await Promise.all([
       repo.getScheduleSlotsQuery(query),
       repo.getAllClasses(),
-      repo.getAllClassSections(),
+      studentSections ? Promise.resolve(studentSections) : repo.getAllClassSections(),
       repo.getAllTeachers(),
     ]);
 
@@ -62,7 +78,19 @@ export async function GET(request: Request) {
         };
       });
 
-    return NextResponse.json({ slots: enriched });
+    // Thứ riêng của từng học sinh trong ca: chỉ thấy buổi thuộc thứ mình đã chọn.
+    const visibleSlots =
+      studentId && studentSections
+        ? enriched.filter(slot => {
+            if (!slot.sectionId) return true;
+            const days = studentDaysBySection.get(slot.sectionId) || [];
+            if (days.length === 0) return true;
+            const dow = dateToDayOfWeek(slot.date);
+            return dow !== null && days.includes(dow);
+          })
+        : enriched;
+
+    return NextResponse.json({ slots: visibleSlots });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Lỗi khi tải lịch học';
     return NextResponse.json({ slots: [], error: message }, { status: 500 });

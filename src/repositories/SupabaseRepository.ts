@@ -1195,20 +1195,15 @@ export class SupabaseRepository implements IRepository {
     const client = this.getClient();
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
 
+    // Một round trip: inner join lọc thẳng ca mà học sinh tham gia, kèm thứ riêng
+    // của học sinh đó trong ca (class_section_students.schedule_days).
     const { data, error } = await client
-      .from('class_section_students')
-      .select('section_id')
-      .eq('student_id', studentId);
-    if (error) throw new Error(error.message);
-    const sectionIds = (data || []).map((r: any) => r.section_id);
-    if (sectionIds.length === 0) return [];
-
-    const { data: sections, error: secErr } = await client
       .from('class_sections')
-      .select('*, class_section_students(student_id, schedule_days)')
-      .in('id', sectionIds);
-    if (secErr) throw new Error(secErr.message);
-    return (sections || []).map(mapClassSectionFromDb);
+      .select('*, class_section_students!inner(student_id, schedule_days)')
+      .eq('class_section_students.student_id', studentId)
+      .order('created_at', { ascending: true });
+    if (error) throw new Error(error.message);
+    return (data || []).map(mapClassSectionFromDb);
   }
 
   public async getSectionsByTeacherId(teacherId: string): Promise<ClassSection[]> {
@@ -1405,7 +1400,7 @@ export class SupabaseRepository implements IRepository {
     try {
       let q = client
         .from('schedule_slots')
-        .select('id, class_id, teacher_id, date, shift_id, start_time, end_time, subject, topic, meeting_link, status, classes(name, subject, meeting_link)');
+        .select('id, class_id, section_id, teacher_id, date, shift_id, start_time, end_time, subject, topic, meeting_link, status, classes(name, subject, meeting_link, start_time, end_time)');
 
       if (query.date) q = q.eq('date', query.date);
       if (query.dateFrom) q = q.gte('date', query.dateFrom);
@@ -1413,6 +1408,16 @@ export class SupabaseRepository implements IRepository {
       if (query.classId) q = q.eq('class_id', query.classId);
       if (query.classIds) q = q.in('class_id', query.classIds);
       if (query.teacherId) q = q.eq('teacher_id', query.teacherId);
+      if (query.sectionIds && query.sectionIds.length > 0) {
+        const sectionFilter = `section_id.in.(${query.sectionIds.map(encodeURIComponent).join(',')})`;
+        if (query.includeUnsectioned && query.classIds && query.classIds.length > 0) {
+          // Buổi cũ chưa gán ca vẫn phải hiện cho học sinh của lớp đó.
+          const legacyFilter = `and(section_id.is.null,class_id.in.(${query.classIds.map(encodeURIComponent).join(',')}))`;
+          q = q.or(`${sectionFilter},${legacyFilter}`);
+        } else {
+          q = q.in('section_id', query.sectionIds);
+        }
+      }
       if (query.excludeCancelled) q = q.neq('status', 'Đã hủy');
 
       const { data, error } = await q;

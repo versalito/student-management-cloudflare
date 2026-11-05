@@ -44,6 +44,10 @@ beforeEach(() => {
   stub('getAllClassSections', () => []);
   stub('getAllTeachers', () => [{ id: 'GV001', name: 'Thầy B' }]);
   stub('getClassMemberships', () => [{ classId: 'CLS01', studentId: 'ST001' }]);
+  stub('getSectionsByStudentId', () => [{
+    id: 'SEC01', classId: 'CLS01', name: 'Ca 1', startTime: '18:00', endTime: '20:30',
+    studentIds: ['ST001'], studentScheduleDays: { ST001: [] },
+  }]);
   stub('getScheduleSlotsQuery', () => [{ id: 'SCH01', classId: 'CLS01' }]);
   stub('getAttendanceByDate', () => [{ id: 'ATT01', date: '2026-01-05' }]);
   stub('getClassesByStudentId', () => [{ id: 'CLS01' }]);
@@ -92,19 +96,42 @@ describe('API query budget (Phase 1)', () => {
     assert.equal(body.teachers.length, 1);
   });
 
-  test('GET /api/schedule?studentId: lọc theo ghi danh + slot query, không đọc toàn bộ slot', async () => {
+  test('GET /api/schedule?studentId: lọc theo ca ở tầng dữ liệu, không đọc toàn bộ slot', async () => {
     const res = await scheduleRoute.GET(new Request('http://localhost/api/schedule?studentId=ST001'));
     const body = await res.json();
 
     assert.equal(res.status, 200);
-    assert.deepEqual(calls.filter(c => c.method === 'getClassMemberships')[0].args[0], { studentId: 'ST001' });
+    assert.equal(calls.filter(c => c.method === 'getSectionsByStudentId').length, 1);
     assert.deepEqual(calls.filter(c => c.method === 'getScheduleSlotsQuery')[0].args[0], {
       date: undefined,
+      dateFrom: undefined,
+      dateTo: undefined,
       classId: undefined,
       teacherId: undefined,
       classIds: ['CLS01'],
+      sectionIds: ['SEC01'],
+      includeUnsectioned: true,
+      excludeCancelled: true,
     });
     assert.equal(body.slots.length, 1);
+  });
+
+  test('GET /api/schedule?studentId: chỉ giữ buổi đúng thứ học sinh chọn trong ca', async () => {
+    stub('getSectionsByStudentId', () => [{
+      id: 'SEC01', classId: 'CLS01', name: 'Ca 1', startTime: '18:00', endTime: '20:30',
+      studentIds: ['ST001'], studentScheduleDays: { ST001: [2] },
+    }]);
+    stub('getScheduleSlotsQuery', () => [
+      { id: 'MON', classId: 'CLS01', sectionId: 'SEC01', date: '2026-11-02' },
+      { id: 'TUE', classId: 'CLS01', sectionId: 'SEC01', date: '2026-11-03' },
+      { id: 'LEGACY', classId: 'CLS01', date: '2026-11-03' },
+    ]);
+
+    const res = await scheduleRoute.GET(new Request('http://localhost/api/schedule?studentId=ST001'));
+    const body = await res.json();
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(body.slots.map((s: { id: string }) => s.id), ['MON', 'LEGACY']);
   });
 
   test('GET /api/attendance?date: 1 query theo ngày, không loop từng lớp', async () => {
