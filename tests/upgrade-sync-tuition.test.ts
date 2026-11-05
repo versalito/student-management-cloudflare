@@ -37,7 +37,7 @@ test('Upgrade Suite: 2-Way Sync & Manual Tuition Status', async (t) => {
       await repo.createUser({
         id: stId,
         username: stId.toLowerCase(),
-        passwordHash: authService.hashPassword('student123'),
+        passwordHash: await authService.hashPassword('student123'),
         role: 'STUDENT',
         name: newStudent.name,
         isActive: true,
@@ -61,7 +61,7 @@ test('Upgrade Suite: 2-Way Sync & Manual Tuition Status', async (t) => {
     await repo.createUser({
       id: userId,
       username: userId.toLowerCase(),
-      passwordHash: authService.hashPassword('student123'),
+      passwordHash: await authService.hashPassword('student123'),
       role: 'STUDENT',
       name: userName,
       isActive: true,

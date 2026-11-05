@@ -88,7 +88,6 @@ export interface IRepository {
   updateUser(user: User): Promise<User>;
   createUser(user: User): Promise<User>;
   deleteUser(id: string): Promise<boolean>;
-  authenticate(username: string, passwordHash: string): Promise<User | null>;
 
   // Students
   getStudentById(id: string): Promise<Student | null>;

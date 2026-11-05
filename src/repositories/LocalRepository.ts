@@ -128,15 +128,6 @@ export class LocalRepository implements IRepository {
     return null;
   }
 
-  public async authenticate(username: string, passwordHash: string): Promise<User | null> {
-    const user = await this.getUserByUsername(username);
-    if (!user || !user.isActive) return null;
-    if (user.passwordHash === passwordHash) {
-      return user;
-    }
-    return null;
-  }
-
   public async getAllUsers(): Promise<User[]> {
     return Array.from(this.users.values());
   }

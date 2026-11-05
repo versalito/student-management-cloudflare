@@ -19,7 +19,7 @@ describe('Self-service Password Change Suite', () => {
   async function ensureUser() {
     const existing = await repo.getUserById(userId);
     if (existing) {
-      existing.passwordHash = auth.hashPassword('matkhau_cu');
+      existing.passwordHash = await auth.hashPassword('matkhau_cu');
       existing.isActive = true;
       await repo.updateUser(existing);
       return;
@@ -27,7 +27,7 @@ describe('Self-service Password Change Suite', () => {
     await repo.createUser({
       id: userId,
       username: 'st_pwd_01',
-      passwordHash: auth.hashPassword('matkhau_cu'),
+      passwordHash: await auth.hashPassword('matkhau_cu'),
       role: 'STUDENT',
       name: 'Học viên đổi mật khẩu',
       isActive: true,

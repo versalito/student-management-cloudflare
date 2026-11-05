@@ -122,7 +122,7 @@ export async function POST(request: Request) {
         await repo.createUser({
           id: newId,
           username: finalUsername,
-          passwordHash: authService.hashPassword(defaultPassword),
+          passwordHash: await authService.hashPassword(defaultPassword),
           role: 'TEACHER',
           name: newTeacher.name,
           isActive: true,

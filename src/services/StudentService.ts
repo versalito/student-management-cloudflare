@@ -77,7 +77,7 @@ export class StudentService {
       await this.repo.createUser({
         id: studentId,
         username: studentId.toLowerCase(),
-        passwordHash: authService.hashPassword(defaultPassword),
+        passwordHash: await authService.hashPassword(defaultPassword),
         role: 'STUDENT',
         name: newStudent.name,
         isActive: true,

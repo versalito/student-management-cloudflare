@@ -12,7 +12,8 @@
     "db:reconcile": "node --import tsx scripts/reconcile-profiles.ts",
     "build:cf": "opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion",
     "preview": "opennextjs-cloudflare preview",
-    "deploy": "opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion && wrangler deploy"
+    "deploy": "opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion && wrangler deploy",
+    "db:audit-slots": "node --import tsx scripts/audit-slot-weekdays.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",

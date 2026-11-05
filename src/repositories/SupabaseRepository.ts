@@ -609,33 +609,6 @@ export class SupabaseRepository implements IRepository {
     }
   }
 
-  public async authenticate(username: string, passwordHash: string): Promise<User | null> {
-    const client = this.getClient();
-    if (!client) {
-      throw new Error('Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local');
-    }
-
-    try {
-      const clean = username.trim();
-      const { data, error } = await client
-        .from('users')
-        .select('*')
-        .or(`username.ilike.${clean},id.ilike.${clean}`)
-        .eq('is_active', true)
-        .eq('password_hash', passwordHash)
-        .maybeSingle();
-
-      if (error) {
-        throw new Error(error.message);
-      }
-
-      if (!data) return null;
-      return mapUserFromDb(data);
-    } catch (err) {
-      throw err;
-    }
-  }
-
   public async getAllUsers(): Promise<User[]> {
     const client = this.getClient();
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local"); // getAllUsers();

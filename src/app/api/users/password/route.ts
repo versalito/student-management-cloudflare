@@ -34,11 +34,11 @@ export async function PUT(request: Request) {
     }
 
     const authService = new AuthService(repo);
-    if (user.passwordHash !== authService.hashPassword(String(currentPassword))) {
+    if (!(await authService.verifyPassword(String(currentPassword), user.passwordHash))) {
       return NextResponse.json({ error: 'Mật khẩu hiện tại không đúng' }, { status: 401 });
     }
 
-    user.passwordHash = authService.hashPassword(String(newPassword));
+    user.passwordHash = await authService.hashPassword(String(newPassword));
     await repo.updateUser(user);
 
     await repo.addAuditLog({

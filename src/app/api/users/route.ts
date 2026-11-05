@@ -57,7 +57,7 @@ export async function PUT(request: Request) {
       if (newPassword.length < 6) {
         return NextResponse.json({ error: 'Mật khẩu phải có tối thiểu 6 ký tự' }, { status: 400 });
       }
-      user.passwordHash = authService.hashPassword(newPassword);
+      user.passwordHash = await authService.hashPassword(newPassword);
     }
 
     if (newName) user.name = newName;
@@ -131,7 +131,7 @@ export async function POST(request: Request) {
     const newUser = {
       id,
       username: username.toLowerCase(),
-      passwordHash: authService.hashPassword(password),
+      passwordHash: await authService.hashPassword(password),
       role,
       name,
       isActive: true,
