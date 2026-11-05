@@ -9,6 +9,63 @@ import { TuitionInvoice, PayrollRecord } from '@/types/finance';
 import { SessionPackage } from '@/types/package';
 import { AuditLog } from '@/types/audit';
 
+/**
+ * Bộ lọc cho truy vấn ca học. Dùng để đẩy điều kiện xuống tầng dữ liệu
+ * (SQL) thay vì đọc toàn bộ bảng rồi lọc trong JS.
+ */
+export interface ScheduleSlotQuery {
+  date?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  classId?: string;
+  classIds?: string[];
+  teacherId?: string;
+  excludeCancelled?: boolean;
+}
+
+export interface ScheduleSlotWithClassName extends ScheduleSlot {
+  className?: string;
+}
+
+export interface ClassMembership {
+  classId: string;
+  studentId: string;
+}
+
+export interface ClassMembershipQuery {
+  studentId?: string;
+}
+
+export interface StudentPageQuery {
+  search?: string;
+  page?: number;
+  limit?: number;
+  /** Lấy toàn bộ danh sách (dùng cho ô chọn học sinh ở hoá đơn/đơn từ). */
+  all?: boolean;
+  /** Lọc theo trạng thái hồ sơ ('Đang học', 'Bảo lưu'...). */
+  status?: string;
+  /** Mã lọc mục tiêu trường + khối thi, xem `src/lib/studentFilters.ts`. */
+  uni?: string;
+}
+
+export interface StudentPage {
+  students: Student[];
+  total: number;
+}
+
+export interface AuditLogPageQuery {
+  search?: string;
+  /** Lọc theo loại thao tác (CREATE, LOGIN...). */
+  action?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface AuditLogPage {
+  logs: AuditLog[];
+  total: number;
+}
+
 export interface IRepository {
   // Time Shifts
   getAllTimeShifts(): Promise<TimeShift[]>;
@@ -121,6 +178,15 @@ export interface IRepository {
   addNotification(notification: Omit<AppNotification, 'id' | 'createdAt'>): Promise<AppNotification>;
   markNotificationAsRead(id: string): Promise<boolean>;
   markAllNotificationsAsRead(userId?: string): Promise<boolean>;
+
+  // Truy vấn tối ưu: lọc/phân trang ở tầng dữ liệu
+  getScheduleSlotsQuery(query?: ScheduleSlotQuery): Promise<ScheduleSlotWithClassName[]>;
+  getAttendanceByDate(date: string): Promise<AttendanceRecord[]>;
+  getClassMemberships(query?: ClassMembershipQuery): Promise<ClassMembership[]>;
+  getStudentsPage(query?: StudentPageQuery): Promise<StudentPage>;
+  getAuditLogsPage(query?: AuditLogPageQuery): Promise<AuditLogPage>;
+  /** Đếm số bản ghi nhật ký theo từng loại thao tác (dùng cho tab + thẻ thống kê). */
+  getAuditActionCounts(actions: string[]): Promise<Record<string, number>>;
 
   // Reset/Re-seed
   resetData(): Promise<void>;

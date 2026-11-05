@@ -57,6 +57,9 @@ export default function AdminAuditPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [total, setTotal] = useState(0);
+  const [counts, setCounts] = useState<Record<string, number>>({});
   const [actionFilter, setActionFilter] = useState<string>('ALL');
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
 
@@ -65,26 +68,55 @@ export default function AdminAuditPage() {
   const [pageSize, setPageSize] = useState<number>(25);
 
   useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm), 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Số lượng theo từng loại thao tác: gọi 1 lần khi mở trang (HEAD + count ở DB).
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/audit?stats=1')
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled) setCounts(data.counts || {});
+      })
+      .catch((e) => console.error(e));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Phân trang + tìm kiếm + lọc loại thao tác phía server: mỗi trang chỉ tải `pageSize` bản ghi.
+  useEffect(() => {
+    let cancelled = false;
     async function load() {
+      setLoading(true);
       try {
-        const res = await fetch('/api/audit');
+        const params = new URLSearchParams({
+          page: String(currentPage),
+          limit: String(pageSize),
+        });
+        if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
+        if (actionFilter !== 'ALL') params.set('action', actionFilter);
+
+        const res = await fetch(`/api/audit?${params.toString()}`);
         const data = await res.json();
+        if (cancelled) return;
         setLogs(data.logs || []);
+        setTotal(data.total || 0);
       } catch (e) {
         console.error(e);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     load();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPage, pageSize, debouncedSearch, actionFilter]);
 
   const tabItems: TabItem<string>[] = useMemo(() => {
-    const counts: Record<string, number> = { ALL: logs.length };
-    logs.forEach((l) => {
-      counts[l.action] = (counts[l.action] || 0) + 1;
-    });
-
     const popularActions = [
       'ALL',
       'ATTENDANCE_CHECK',
@@ -101,28 +133,10 @@ export default function AdminAuditPage() {
       label: ACTION_LABELS[act]?.label || act,
       count: counts[act] || 0,
     }));
-  }, [logs]);
+  }, [counts]);
 
-  const filtered = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    return logs.filter((l) => {
-      if (actionFilter !== 'ALL' && l.action !== actionFilter) return false;
-      if (!q) return true;
-      return (
-        l.userName?.toLowerCase().includes(q) ||
-        l.userId?.toLowerCase().includes(q) ||
-        l.details?.toLowerCase().includes(q) ||
-        l.action?.toLowerCase().includes(q) ||
-        l.targetResource?.toLowerCase().includes(q) ||
-        l.id?.toLowerCase().includes(q)
-      );
-    });
-  }, [logs, actionFilter, searchTerm]);
-
-  const totalPages = Math.ceil(filtered.length / pageSize) || 1;
-  const paginatedLogs = useMemo(() => {
-    return filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  }, [filtered, currentPage, pageSize]);
+  const totalPages = Math.ceil(total / pageSize) || 1;
+  const paginatedLogs = logs;
 
   const handleSearchChange = (val: string) => {
     setSearchTerm(val);
@@ -139,18 +153,16 @@ export default function AdminAuditPage() {
     setCurrentPage(1);
   };
 
-  // Thống kê nhanh
-  const stats = useMemo(() => {
-    const attendanceCount = logs.filter((l) => l.action === 'ATTENDANCE_CHECK').length;
-    const paymentCount = logs.filter((l) => l.action === 'PAYMENT_PROCESS').length;
-    const scheduleCount = logs.filter((l) => l.action === 'SCHEDULE_CHANGE').length;
-    return {
-      total: logs.length,
-      attendance: attendanceCount,
-      payment: paymentCount,
-      schedule: scheduleCount,
-    };
-  }, [logs]);
+  // Thống kê nhanh (toàn bộ nhật ký, không phải chỉ trang đang xem)
+  const stats = useMemo(
+    () => ({
+      total: counts.ALL || 0,
+      attendance: counts.ATTENDANCE_CHECK || 0,
+      payment: counts.PAYMENT_PROCESS || 0,
+      schedule: counts.SCHEDULE_CHANGE || 0,
+    }),
+    [counts]
+  );
 
   const columns: Column<AuditLog>[] = [
     {
@@ -272,7 +284,7 @@ export default function AdminAuditPage() {
                 className="w-full sm:w-80"
               />
               <p className="text-[12px] text-muted-foreground tabular shrink-0">
-                Hiển thị <span className="font-bold text-foreground">{filtered.length}</span> / {logs.length} bản ghi
+                Hiển thị <span className="font-bold text-foreground">{logs.length}</span> / {total} bản ghi
               </p>
             </div>
 
@@ -330,7 +342,7 @@ export default function AdminAuditPage() {
               <Pager
                 page={currentPage}
                 pageSize={pageSize}
-                total={filtered.length}
+                total={total}
                 onPageChange={setCurrentPage}
                 onPageSizeChange={handlePageSizeChange}
               />

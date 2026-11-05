@@ -1,6 +1,17 @@
 import { AppNotification } from '@/types/notification';
 import { IRepository } from './IRepository';
+import type {
+  AuditLogPage,
+  AuditLogPageQuery,
+  ClassMembership,
+  ClassMembershipQuery,
+  ScheduleSlotQuery,
+  ScheduleSlotWithClassName,
+  StudentPage,
+  StudentPageQuery,
+} from './IRepository';
 import { User } from '@/types/auth';
+import { matchesUniFilter } from '@/lib/studentFilters';
 import { Student } from '@/types/student';
 import { Teacher } from '@/types/teacher';
 import { ClassEntity, ClassSection } from '@/types/classroom';
@@ -203,6 +214,59 @@ export class LocalRepository implements IRepository {
     return Array.from(this.classes.values()).filter(c => c.teacherId === teacherId);
   }
 
+  public async getClassMemberships(query: ClassMembershipQuery = {}): Promise<ClassMembership[]> {
+    const rows: ClassMembership[] = [];
+    for (const cls of this.classes.values()) {
+      for (const studentId of cls.studentIds || []) {
+        if (query.studentId && studentId !== query.studentId) continue;
+        rows.push({ classId: cls.id, studentId });
+      }
+    }
+    return rows;
+  }
+
+  public async getStudentsPage(query: StudentPageQuery = {}): Promise<StudentPage> {
+    const page = Math.max(1, query.page || 1);
+    const limit = Math.min(1000, Math.max(1, query.limit || 50));
+    const search = (query.search || '').trim().toLowerCase();
+
+    const classIdsByStudent = new Map<string, string[]>();
+    for (const membership of await this.getClassMemberships()) {
+      const ids = classIdsByStudent.get(membership.studentId) || [];
+      ids.push(membership.classId);
+      classIdsByStudent.set(membership.studentId, ids);
+    }
+
+    let students = await this.getAllStudents();
+    students = students.map(student => ({
+      ...student,
+      enrolledClassIds: classIdsByStudent.get(student.id) || [],
+    }));
+
+    if (search) {
+      students = students.filter(student =>
+        student.id.toLowerCase().includes(search) ||
+        student.name.toLowerCase().includes(search) ||
+        (student.phone || '').includes(search)
+      );
+    }
+
+    if (query.status && query.status !== 'ALL') {
+      students = students.filter(student => student.status === query.status);
+    }
+
+    if (query.uni && query.uni !== 'ALL') {
+      students = students.filter(student => matchesUniFilter(student, query.uni!));
+    }
+
+    if (query.all) {
+      return { students, total: students.length };
+    }
+
+    const from = (page - 1) * limit;
+    return { students: students.slice(from, from + limit), total: students.length };
+  }
+
   public async getClassesByStudentId(studentId: string): Promise<ClassEntity[]> {
     return Array.from(this.classes.values()).filter(c => c.studentIds.includes(studentId));
   }
@@ -373,6 +437,29 @@ export class LocalRepository implements IRepository {
     return Array.from(this.scheduleSlots.values());
   }
 
+  public async getScheduleSlotsQuery(query: ScheduleSlotQuery = {}): Promise<ScheduleSlotWithClassName[]> {
+    const slots = Array.from(this.scheduleSlots.values()).filter(slot => {
+      if (query.date && slot.date !== query.date) return false;
+      if (query.dateFrom && slot.date < query.dateFrom) return false;
+      if (query.dateTo && slot.date > query.dateTo) return false;
+      if (query.classId && slot.classId !== query.classId) return false;
+      if (query.classIds && !query.classIds.includes(slot.classId)) return false;
+      if (query.teacherId && slot.teacherId !== query.teacherId) return false;
+      if (query.excludeCancelled && slot.status === 'Đã hủy') return false;
+      return true;
+    });
+
+    return slots.map(slot => {
+      const cls = this.classes.get(slot.classId);
+      return {
+        ...slot,
+        subject: slot.subject || cls?.subject || cls?.name || '',
+        meetingLink: slot.meetingLink || cls?.meetingLink || '',
+        className: cls?.name,
+      };
+    });
+  }
+
   
   // Time Shifts
   public async getAllTimeShifts(): Promise<TimeShift[]> {
@@ -478,6 +565,10 @@ export class LocalRepository implements IRepository {
 
   public async getAttendanceByClassId(classId: string): Promise<AttendanceRecord[]> {
     return Array.from(this.attendanceRecords.values()).filter(a => a.classId === classId);
+  }
+
+  public async getAttendanceByDate(date: string): Promise<AttendanceRecord[]> {
+    return Array.from(this.attendanceRecords.values()).filter(a => a.date === date);
   }
 
   public async saveAttendanceRecord(record: AttendanceRecord): Promise<AttendanceRecord> {
@@ -637,6 +728,37 @@ export class LocalRepository implements IRepository {
   // Audit Logs
   public async getAllAuditLogs(): Promise<AuditLog[]> {
     return [...this.auditLogs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }
+
+  public async getAuditLogsPage(query: AuditLogPageQuery = {}): Promise<AuditLogPage> {
+    const limit = Math.min(500, Math.max(1, query.limit || 50));
+    const offset = Math.max(0, query.offset || 0);
+    const search = (query.search || '').trim().toLowerCase();
+
+    let logs = await this.getAllAuditLogs();
+    if (query.action && query.action !== 'ALL') {
+      logs = logs.filter(log => log.action === query.action);
+    }
+    if (search) {
+      logs = logs.filter(log =>
+        log.userName.toLowerCase().includes(search) ||
+        log.userId.toLowerCase().includes(search) ||
+        log.action.toLowerCase().includes(search) ||
+        log.details.toLowerCase().includes(search)
+      );
+    }
+
+    return { logs: logs.slice(offset, offset + limit), total: logs.length };
+  }
+
+  public async getAuditActionCounts(actions: string[]): Promise<Record<string, number>> {
+    const logs = await this.getAllAuditLogs();
+    const counts: Record<string, number> = {};
+    for (const action of actions) {
+      counts[action] = logs.filter(log => log.action === action).length;
+    }
+    counts.ALL = logs.length;
+    return counts;
   }
 
   public async addAuditLog(log: Omit<AuditLog, 'id' | 'timestamp'>): Promise<AuditLog> {

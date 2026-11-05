@@ -35,6 +35,15 @@ async function deductSessionForAttendance(studentId: string, status: AttendanceS
 }
 
 export async function GET(request: Request) {
+  try {
+    return await getAttendance(request);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Lỗi khi tải sổ điểm danh';
+    return NextResponse.json({ records: [], error: message }, { status: 500 });
+  }
+}
+
+async function getAttendance(request: Request) {
   const { searchParams } = new URL(request.url);
   const slotId = searchParams.get('slotId');
   const studentId = searchParams.get('studentId');
@@ -104,20 +113,9 @@ export async function GET(request: Request) {
   } else if (studentId) {
     records = await repo.getAttendanceByStudentId(studentId);
   } else {
-    // If no primary filter, check if date or classId/slotId are combined
-    // Or if date only, query all slots or records if repository supports, 
-    // but typically slotId or classId is provided.
-    // As fallback for general query:
-    const allClasses = await repo.getAllClasses();
-    const allRecords: AttendanceRecord[] = [];
-    for (const cls of allClasses) {
-      const clsRecords = await repo.getAttendanceByClassId(cls.id);
-      allRecords.push(...clsRecords);
-    }
-    // Deduplicate by id if needed
-    const map = new Map<string, AttendanceRecord>();
-    allRecords.forEach(r => map.set(r.id, r));
-    records = Array.from(map.values());
+    // Không có filter: chỉ đọc sổ điểm danh của hôm nay (1 query theo index `idx_attendance_date`)
+    // thay vì N+1 query cho từng lớp rồi gộp cả bảng.
+    records = await repo.getAttendanceByDate(date || getTodayDateStr());
   }
 
   // Filter further by date, classId, slotId, studentId if multiple params provided

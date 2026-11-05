@@ -1,4 +1,5 @@
 import { repo } from '@/repositories';
+import type { ScheduleSlotQuery } from '@/repositories/IRepository';
 import { NextResponse } from 'next/server';
 import { ConflictEngine } from '@/services/ConflictEngine';
 
@@ -11,51 +12,61 @@ export async function GET(request: Request) {
   const classId = searchParams.get('classId');
   const date = searchParams.get('date');
 
-  // Học sinh dùng đường lọc riêng (theo ca đã tham gia); người khác lấy toàn bộ rồi lọc.
-  let slots: Awaited<ReturnType<typeof repo.getScheduleSlotsByStudentId>> = [];
-  if (studentId) {
-    slots = await repo.getScheduleSlotsByStudentId(studentId);
-  } else {
-    slots = await repo.getAllScheduleSlots();
-  }
-  if (teacherId) {
-    slots = slots.filter(s => s.teacherId === teacherId);
-  }
-  if (classId) {
-    slots = slots.filter(s => s.classId === classId);
-  }
-  if (date) {
-    slots = slots.filter(s => s.date === date);
-  }
-  // Enrich normalized schedule rows with class-owned subject and meeting link.
-  const allClasses = await repo.getAllClasses();
-  const classMap = new Map(allClasses.map(cls => [cls.id, cls]));
-  // Lọc bỏ triệt để các slot mồ côi nếu lớp học đã bị xóa khỏi hệ thống
-  slots = slots.filter(slot => classMap.has(slot.classId));
-  // Giờ thật phải theo ca (class_sections). Slot cũ có thể lưu giờ lệch, nên
-  // ưu tiên giờ của ca để nút điểm danh / đổi ca tính đúng trạng thái.
-  const allSections = await repo.getAllClassSections();
-  const sectionTimeMap = new Map(
-    allSections.filter((s) => s.isActive !== false).map((s) => [s.id, s])
-  );
-  // Bổ sung tên giáo viên để portal hiển thị tên thay vì mã.
-  const allTeachers = await repo.getAllTeachers();
-  const teacherMap = new Map(allTeachers.map((t) => [t.id, t]));
-  slots = slots.map(slot => {
-    const cls = classMap.get(slot.classId);
-    const sec = slot.sectionId ? sectionTimeMap.get(slot.sectionId) : undefined;
-    const teacher = teacherMap.get(slot.teacherId);
-    return {
-      ...slot,
-      startTime: (sec && sec.startTime) || slot.startTime || cls?.startTime || '18:30',
-      endTime: (sec && sec.endTime) || slot.endTime || cls?.endTime || '20:30',
-      subject: slot.subject || cls?.subject || cls?.name || '',
-      meetingLink: slot.meetingLink || cls?.meetingLink || '',
-      teacherName: teacher?.name || '',
+  try {
+    const query: ScheduleSlotQuery = {
+      date: date || undefined,
+      classId: classId || undefined,
+      teacherId: teacherId || undefined,
     };
-  });
 
-  return NextResponse.json({ slots });
+    // Học viên: chỉ đọc join table ghi danh (1 query nhỏ) rồi lọc slot theo lớp,
+    // thay vì đọc toàn bộ classes + toàn bộ slots.
+    if (studentId) {
+      const memberships = await repo.getClassMemberships({ studentId });
+      const classIds = Array.from(new Set(memberships.map(m => m.classId)));
+      if (classIds.length === 0) return NextResponse.json({ slots: [] });
+      query.classIds = classIds;
+    }
+
+    // Bảng slots là bảng lớn nên lọc ngay ở tầng dữ liệu; classes/sections/teachers
+    // chỉ vài chục dòng nên đọc full để bổ sung dữ liệu hiển thị.
+    const [rawSlots, allClasses, allSections, allTeachers] = await Promise.all([
+      repo.getScheduleSlotsQuery(query),
+      repo.getAllClasses(),
+      repo.getAllClassSections(),
+      repo.getAllTeachers(),
+    ]);
+
+    const classMap = new Map(allClasses.map(cls => [cls.id, cls]));
+    // Giờ thật phải theo ca (class_sections). Slot cũ có thể lưu giờ lệch, nên
+    // ưu tiên giờ của ca để nút điểm danh / đổi ca tính đúng trạng thái.
+    const sectionTimeMap = new Map(
+      allSections.filter((s) => s.isActive !== false).map((s) => [s.id, s])
+    );
+    const teacherMap = new Map(allTeachers.map((t) => [t.id, t]));
+
+    // Lọc bỏ triệt để các slot mồ côi nếu lớp học đã bị xóa khỏi hệ thống.
+    const enriched = rawSlots
+      .filter(slot => classMap.has(slot.classId))
+      .map(slot => {
+        const cls = classMap.get(slot.classId);
+        const sec = slot.sectionId ? sectionTimeMap.get(slot.sectionId) : undefined;
+        const teacher = teacherMap.get(slot.teacherId);
+        return {
+          ...slot,
+          startTime: (sec && sec.startTime) || slot.startTime || cls?.startTime || '18:30',
+          endTime: (sec && sec.endTime) || slot.endTime || cls?.endTime || '20:30',
+          subject: slot.subject || cls?.subject || cls?.name || '',
+          meetingLink: slot.meetingLink || cls?.meetingLink || '',
+          teacherName: teacher?.name || '',
+        };
+      });
+
+    return NextResponse.json({ slots: enriched });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Lỗi khi tải lịch học';
+    return NextResponse.json({ slots: [], error: message }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {

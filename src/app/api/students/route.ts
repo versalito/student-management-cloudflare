@@ -4,24 +4,6 @@ import { StudentService } from '@/services/StudentService';
 
 export const dynamic = 'force-dynamic';
 
-/** Khớp mã lọc mục tiêu trường + khối thi với hồ sơ học sinh. */
-function matchesUniFilter(s: { targetUniversity?: string; examBlock?: string; customUniversity?: string }, filter: string): boolean {
-  switch (filter) {
-    case 'HAU_V': return s.targetUniversity === 'HAU' && s.examBlock === 'KHOI_V';
-    case 'HAU_H': return s.targetUniversity === 'HAU' && s.examBlock === 'KHOI_H';
-    case 'HUCE_V': return s.targetUniversity === 'HUCE' && s.examBlock === 'KHOI_V';
-    case 'HUCE_H': return s.targetUniversity === 'HUCE' && s.examBlock === 'KHOI_H';
-    case 'MTCN_V': return s.targetUniversity === 'MTCN' && s.examBlock === 'KHOI_V';
-    case 'MTCN_H': return s.targetUniversity === 'MTCN' && s.examBlock === 'KHOI_H';
-    case 'NUAE': return s.targetUniversity === 'NUAE';
-    case 'HNUE': return s.targetUniversity === 'HNUE';
-    case 'VNUFA': return s.targetUniversity === 'VNUFA';
-    case 'HOU': return s.targetUniversity === 'HOU';
-    case 'VNU-SIS': return s.targetUniversity === 'VNU-SIS';
-    case 'KHAC': return s.targetUniversity === 'KHAC' || !!s.customUniversity;
-    default: return true;
-  }
-}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -35,82 +17,42 @@ export async function GET(request: Request) {
   const limit = limitParam === 'all' ? Number.MAX_SAFE_INTEGER : parseInt(limitParam || '50', 10);
 
   if (id) {
-    const student = await repo.getStudentById(id);
-    if (!student) return NextResponse.json({ student: null });
-    const enrolledClasses = await repo.getClassesByStudentId(id);
-    return NextResponse.json({
-      student: { ...student, enrolledClassIds: enrolledClasses.map(c => c.id) },
-    });
-  }
-
-  // Tự động đồng bộ đối soát: Quét tất cả user có role STUDENT, nếu thiếu trong hồ sơ students thì tự động bổ sung ngay
-  try {
-    const allUsers = await repo.getAllUsers();
-    const studentUsers = allUsers.filter(u => u.role === 'STUDENT');
-    let existingStudents = await repo.getAllStudents();
-    const existingStudentIds = new Set(existingStudents.map(s => s.id));
-
-    for (const u of studentUsers) {
-      if (!existingStudentIds.has(u.id)) {
-        try {
-          const syncedStudent = {
-            id: u.id,
-            name: u.name,
-            phone: '0900000000',
-            dateOfBirth: '2008-01-01',
-            gender: 'Nam' as const,
-            address: 'TP. Hồ Chí Minh',
-            status: 'Đang học' as const,
-            enrolledClassIds: [],
-            createdAt: new Date().toISOString(),
-          };
-          await repo.createStudent(syncedStudent);
-          existingStudentIds.add(u.id);
-        } catch (e) {
-          console.warn('[AUTO-HEAL-STUDENT] Bỏ qua lỗi đồng bộ hồ sơ cho', u.id, e);
-        }
-      }
+    try {
+      const student = await repo.getStudentById(id);
+      if (!student) return NextResponse.json({ student: null });
+      const enrolledClasses = await repo.getClassesByStudentId(id);
+      return NextResponse.json({
+        student: { ...student, enrolledClassIds: enrolledClasses.map(c => c.id) },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi khi tải học viên';
+      return NextResponse.json({ student: null, error: message }, { status: 500 });
     }
-  } catch (healErr) {
-    console.warn('[AUTO-HEAL-SYNC-ERROR]:', healErr);
   }
 
-  let students = await repo.getAllStudents();
-  // Class membership is normalized in the ClassStudents sheet, không trùng lặp trong Students.
-  const allClasses = await repo.getAllClasses();
-  const classIdsByStudent = new Map<string, string[]>();
-  allClasses.forEach(cls => (cls.studentIds || []).forEach(studentId => {
-    const ids = classIdsByStudent.get(studentId) || [];
-    ids.push(cls.id);
-    classIdsByStudent.set(studentId, ids);
-  }));
-  students = students.map(student => ({
-    ...student,
-    enrolledClassIds: classIdsByStudent.get(student.id) || [],
-  }));
-  if (search) {
-    students = students.filter(s => 
-      s.id.toLowerCase().includes(search) ||
-      s.name.toLowerCase().includes(search) ||
-      (s.phone && s.phone.includes(search))
-    );
-  }
-  if (status && status !== 'ALL') {
-    students = students.filter(s => s.status === status);
-  }
-  if (uni && uni !== 'ALL') {
-    students = students.filter(s => matchesUniFilter(s, uni));
-  }
+  // Đọc thuần: lọc `search` + phân trang ở tầng dữ liệu (1 query + count),
+  // kèm lớp ghi danh embed. Việc đối soát hồ sơ thiếu chuyển sang
+  // POST /api/admin/reconcile (npm run db:reconcile) — không ghi trong GET.
+  try {
+    const { students, total } = await repo.getStudentsPage({
+      search,
+      page,
+      limit,
+      all: limitParam === 'all',
+      status: status || undefined,
+      uni: uni || undefined,
+    });
 
-  const total = students.length;
-  const paginated = students.slice((page - 1) * limit, page * limit);
-
-  return NextResponse.json({
-    students: paginated,
-    total,
-    page,
-    totalPages: Math.ceil(total / limit),
-  });
+    return NextResponse.json({
+      students,
+      total,
+      page,
+      totalPages: limitParam === 'all' ? 1 : Math.ceil(total / limit),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Lỗi khi tải danh sách học viên';
+    return NextResponse.json({ students: [], total: 0, page, totalPages: 0, error: message }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {

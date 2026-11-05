@@ -14,3 +14,7 @@ SUPABASE_URL = "https://mvcwdqzmvgjdwqnnxaxb.supabase.co"
 [assets]
 directory = ".open-next/assets"
 binding = "ASSETS"
+
+# SUPABASE_SERVICE_ROLE_KEY KHÔNG đặt ở đây: đây là secret cấp production,
+# nạp bằng `wrangler secret put SUPABASE_SERVICE_ROLE_KEY` (hoặc .dev.vars khi chạy local).
+# Không commit khóa này vào repo công khai.

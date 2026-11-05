@@ -14,27 +14,35 @@ export async function GET(request: Request) {
   const studentId = searchParams.get('studentId');
   const id = searchParams.get('id');
 
-  if (id) {
-    const cls = await repo.getClassById(id);
-    return NextResponse.json({ class: cls });
-  }
+  try {
+    if (id) {
+      const cls = await repo.getClassById(id);
+      return NextResponse.json({ class: cls });
+    }
 
-  let classes = await repo.getAllClasses();
-  if (teacherId) {
-    // Giáo viên có thể chỉ phụ trách một ca (class_sections) của lớp đa giáo viên;
-    // hợp thêm lớp từ các ca mà giáo viên đó đảm nhận.
-    const sectionClasses = await repo.getSectionsByTeacherId(teacherId);
-    const classIds = new Set<string>([
-      ...classes.filter(c => c.teacherId === teacherId).map(c => c.id),
-      ...sectionClasses.map(s => s.classId),
-    ]);
-    classes = classes.filter(c => classIds.has(c.id));
-  }
-  if (studentId) {
-    classes = classes.filter(c => c.studentIds.includes(studentId));
-  }
+    // Lọc ở tầng dữ liệu: chỉ đọc đúng lớp cần dùng thay vì tải toàn bộ rồi lọc JS.
+    let classes;
+    if (studentId) {
+      classes = await repo.getClassesByStudentId(studentId);
+    } else {
+      classes = await repo.getAllClasses();
+      if (teacherId) {
+        // Giáo viên có thể chỉ phụ trách một ca (class_sections) của lớp đa giáo viên;
+        // hợp thêm lớp từ các ca mà giáo viên đó đảm nhận.
+        const sectionClasses = await repo.getSectionsByTeacherId(teacherId);
+        const classIds = new Set<string>([
+          ...classes.filter(c => c.teacherId === teacherId).map(c => c.id),
+          ...sectionClasses.map(s => s.classId),
+        ]);
+        classes = classes.filter(c => classIds.has(c.id));
+      }
+    }
 
-  return NextResponse.json({ classes });
+    return NextResponse.json({ classes });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Lỗi khi tải lớp học';
+    return NextResponse.json({ classes: [], error: message }, { status: 500 });
+  }
 }
 
 export async function PUT(request: Request) {
