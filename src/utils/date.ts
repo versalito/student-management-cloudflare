@@ -58,12 +58,18 @@ export function getTodayDateStrByDate(d: Date): string {
 
 /**
  * Thứ trong tuần theo quy ước dự án: 2 = Thứ 2 ... 7 = Thứ 7, 8 = Chủ Nhật.
- * Nhận chuỗi ngày YYYY-MM-DD, tính theo giờ Việt Nam để không bị lệch ngày khi chạy UTC.
+ * Chuỗi ngày YYYY-MM-DD là ngày lịch, không phải mốc thời gian: tách năm/tháng/ngày
+ * rồi tra cứu bằng UTC nên kết quả giống nhau ở mọi múi giờ máy chạy
+ * (Cloudflare Workers luôn là UTC, còn Node local là Asia/Saigon).
  */
 export function dateToDayOfWeek(dateStr: string): number | null {
   if (!dateStr) return null;
-  const d = new Date(dateStr + 'T00:00:00+07:00');
-  if (isNaN(d.getTime())) return null;
-  const jsDay = d.getDay(); // 0: CN, 1: T2 ... 6: T7
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr.trim());
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const jsDay = new Date(Date.UTC(year, month - 1, day)).getUTCDay(); // 0: CN, 1: T2 ... 6: T7
   return jsDay === 0 ? 8 : jsDay + 1;
 }
