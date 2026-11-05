@@ -12,6 +12,19 @@ describe('Bulk Schedule Operations Suite', () => {
   const testTeacherId = 'GV_BULK_01';
   const testRoomId = 'ROOM_BULK_A';
 
+  // Ngày fixture phải tính từ hôm nay: `ShiftService.bulkUpdateShifts` chỉ đồng bộ
+  // các slot có `date >= today`, nên mốc cố định trong quá khứ (2026-10-*) làm
+  // test này fail vĩnh viễn sau ngày đó.
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const day = (offset: number) =>
+    new Date(startOfToday.getTime() + offset * 86_400_000).toISOString().slice(0, 10);
+  const D01 = day(1);
+  const D02 = day(2);
+  const D05 = day(5);
+  const D10 = day(10);
+  const D15 = day(15);
+
   it('Setup: Tạo các ca học giả lập phục vụ kiểm thử', async () => {
     await ShiftService.resetDefaults();
 
@@ -22,7 +35,7 @@ describe('Bulk Schedule Operations Suite', () => {
         classId: testClassId,
         teacherId: testTeacherId,
         roomId: testRoomId,
-        date: '2026-10-01',
+        date: D01,
         shiftId: 1,
         startTime: '08:00',
         endTime: '10:00',
@@ -34,7 +47,7 @@ describe('Bulk Schedule Operations Suite', () => {
         classId: testClassId,
         teacherId: testTeacherId,
         roomId: testRoomId,
-        date: '2026-10-05',
+        date: D05,
         shiftId: 1,
         startTime: '08:00',
         endTime: '10:00',
@@ -46,7 +59,7 @@ describe('Bulk Schedule Operations Suite', () => {
         classId: testClassId,
         teacherId: testTeacherId,
         roomId: testRoomId,
-        date: '2026-10-10',
+        date: D10,
         shiftId: 1,
         startTime: '08:00',
         endTime: '10:00',
@@ -58,7 +71,7 @@ describe('Bulk Schedule Operations Suite', () => {
         classId: testClassId,
         teacherId: testTeacherId,
         roomId: testRoomId,
-        date: '2026-10-15',
+        date: D15,
         shiftId: 1,
         startTime: '08:00',
         endTime: '10:00',
@@ -76,13 +89,13 @@ describe('Bulk Schedule Operations Suite', () => {
   });
 
   it('1. Tính năng 1: Thay đổi lịch/ca học hàng loạt TỪ NAY VỀ SAU cho lớp học (Future Bulk Update)', async () => {
-    // Dời từ ngày 2026-10-05 trở đi sang Ca 2 (10:15 - 12:15) và đổi sang phòng ROOM_BULK_B
+    // Dời từ ngày D05 trở đi sang Ca 2 (10:15 - 12:15) và đổi sang phòng ROOM_BULK_B
     const req = new Request('http://localhost/api/schedule/bulk-update-future', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         classId: testClassId,
-        fromDate: '2026-10-05',
+        fromDate: D05,
         targetShiftId: 2,
         targetRoomId: 'ROOM_BULK_B',
         targetTeacherId: 'GV_BULK_02',
@@ -92,7 +105,7 @@ describe('Bulk Schedule Operations Suite', () => {
     const res = await bulkUpdateFuture(req);
     const data = await res.json();
     assert.ok(data.success);
-    // Có 2 slot thỏa mãn date >= 2026-10-05 và status !== 'Đã hủy' là SCH_BULK_02 và SCH_BULK_03
+    // Có 2 slot thỏa mãn date >= D05 và status !== 'Đã hủy' là SCH_BULK_02 và SCH_BULK_03
     assert.equal(data.updatedCount, 2);
 
     // Slot 01 giữ nguyên
@@ -121,19 +134,19 @@ describe('Bulk Schedule Operations Suite', () => {
 
     // Kiểm tra Audit Log
     const logs = await repo.getAllAuditLogs();
-    const futureLog = logs.find(l => l.targetId === testClassId && l.details.includes('Thay đổi lịch từ ngày 2026-10-05 về sau'));
+    const futureLog = logs.find(l => l.targetId === testClassId && l.details.includes(`Thay đổi lịch từ ngày ${D05} về sau`));
     assert.ok(futureLog, 'Phải có AuditLog cho future bulk update');
   });
 
   it('2. Tính năng 2: Thao tác thay đổi hàng loạt THEO NGÀY (Daily Bulk Operations)', async () => {
-    // 2.1 RESCHEDULE_DAY: Dời toàn bộ ca của ngày 2026-10-01 sang ngày 2026-10-02
+    // 2.1 RESCHEDULE_DAY: Dời toàn bộ ca của ngày D01 sang ngày D02
     const reqReschedule = new Request('http://localhost/api/schedule/bulk-daily-action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        currentDate: '2026-10-01',
+        currentDate: D01,
         action: 'RESCHEDULE_DAY',
-        targetDate: '2026-10-02',
+        targetDate: D02,
       }),
     });
     const resReschedule = await bulkDailyAction(reqReschedule);
@@ -142,14 +155,14 @@ describe('Bulk Schedule Operations Suite', () => {
     assert.equal(dataReschedule.affectedCount, 1);
 
     const slot01After = await repo.getScheduleSlotById('SCH_BULK_01');
-    assert.equal(slot01After?.date, '2026-10-02');
+    assert.equal(slot01After?.date, D02);
 
-    // 2.2 SHIFT_MIGRATION: Chuyển ca trong ngày (dời ca 1 sang ca 3 trong ngày 2026-10-02)
+    // 2.2 SHIFT_MIGRATION: Chuyển ca trong ngày (dời ca 1 sang ca 3 trong ngày D02)
     const reqShiftMigrate = new Request('http://localhost/api/schedule/bulk-daily-action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        currentDate: '2026-10-02',
+        currentDate: D02,
         action: 'SHIFT_MIGRATION',
         fromShiftId: 1,
         toShiftId: 3,
@@ -165,12 +178,12 @@ describe('Bulk Schedule Operations Suite', () => {
     assert.equal(slot01Shift3?.startTime, '13:30');
     assert.equal(slot01Shift3?.endTime, '15:30');
 
-    // 2.3 ROOM_MIGRATION: Chuyển sang phòng ROOM_LAB_X trong ngày 2026-10-02
+    // 2.3 ROOM_MIGRATION: Chuyển sang phòng ROOM_LAB_X trong ngày D02
     const reqRoom = new Request('http://localhost/api/schedule/bulk-daily-action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        currentDate: '2026-10-02',
+        currentDate: D02,
         action: 'ROOM_MIGRATION',
         targetRoomId: 'ROOM_LAB_X',
       }),
@@ -183,12 +196,12 @@ describe('Bulk Schedule Operations Suite', () => {
     const slot01RoomX = await repo.getScheduleSlotById('SCH_BULK_01');
     assert.equal(slot01RoomX?.roomId, 'ROOM_LAB_X');
 
-    // 2.4 CANCEL_DAY: Hủy tất cả các ca trong ngày 2026-10-02
+    // 2.4 CANCEL_DAY: Hủy tất cả các ca trong ngày D02
     const reqCancel = new Request('http://localhost/api/schedule/bulk-daily-action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        currentDate: '2026-10-02',
+        currentDate: D02,
         action: 'CANCEL_DAY',
       }),
     });

@@ -270,7 +270,7 @@ export default function AdminTuitionPage() {
     if (students.length === 0) {
       try {
         setLoadingOptions(true);
-        const resStudents = await fetch('/api/students');
+        const resStudents = await fetch('/api/students?limit=1000');
         const dataStudents = await resStudents.json();
         setStudents((dataStudents.students || []).map((s: any) => ({
           id: s.id,

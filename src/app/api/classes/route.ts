@@ -11,20 +11,27 @@ export async function GET(request: Request) {
   const studentId = searchParams.get('studentId');
   const id = searchParams.get('id');
 
-  if (id) {
-    const cls = await repo.getClassById(id);
-    return NextResponse.json({ class: cls });
-  }
+  try {
+    if (id) {
+      const cls = await repo.getClassById(id);
+      return NextResponse.json({ class: cls });
+    }
 
-  let classes = await repo.getAllClasses();
-  if (teacherId) {
-    classes = classes.filter(c => c.teacherId === teacherId);
-  }
-  if (studentId) {
-    classes = classes.filter(c => c.studentIds.includes(studentId));
-  }
+    // Lọc ở tầng dữ liệu (1–2 query) thay vì đọc toàn bộ lớp + ghi danh rồi lọc JS.
+    let classes;
+    if (studentId) {
+      classes = await repo.getClassesByStudentId(studentId);
+    } else if (teacherId) {
+      classes = await repo.getClassesByTeacherId(teacherId);
+    } else {
+      classes = await repo.getAllClasses();
+    }
 
-  return NextResponse.json({ classes });
+    return NextResponse.json({ classes });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Lỗi khi tải lớp học';
+    return NextResponse.json({ classes: [], error: message }, { status: 500 });
+  }
 }
 
 export async function PUT(request: Request) {

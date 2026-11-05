@@ -12,26 +12,35 @@ export const NotificationDropdown: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const loadNotifications = async () => {
-    if (!currentUser?.id) return;
-    try {
-      const res = await fetch(`/api/notifications?userId=${currentUser.id}&role=${currentUser.role}`);
-      const data = await res.json();
-      setNotifications(data.notifications || []);
-    } catch (e) {
-      console.error(e);
-    }
-  };
+  const userId = currentUser?.id;
+  const userRole = currentUser?.role;
 
+  // Polling 15s; deps là primitive (id/role) nên AppContext cấp lại object
+  // currentUser (khi /api/users trả về) không tạo thêm request hay timer.
   useEffect(() => {
-    if (!currentUser?.id) {
+    if (!userId) {
       setNotifications([]);
       return;
     }
-    loadNotifications();
-    const interval = setInterval(loadNotifications, 15000); // Polling 15s
-    return () => clearInterval(interval);
-  }, [currentUser]);
+
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/notifications?userId=${userId}&role=${userRole}`);
+        const data = await res.json();
+        if (!cancelled) setNotifications(data.notifications || []);
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
+    load();
+    const interval = setInterval(load, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [userId, userRole]);
 
   // Click outside to close
   useEffect(() => {

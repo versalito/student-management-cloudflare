@@ -57,7 +57,7 @@ export default function AdminRequestsPage() {
     try {
       const [reqRes, stuRes, clsRes, schedRes] = await Promise.all([
         fetch('/api/requests'),
-        fetch('/api/students'),
+        fetch('/api/students?limit=1000'),
         fetch('/api/classes'),
         fetch('/api/schedule'),
       ]);

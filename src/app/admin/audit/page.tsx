@@ -9,6 +9,8 @@ import { History, Shield, User, Clock, Search } from 'lucide-react';
 export default function AdminAuditPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
 
   // Pagination states
@@ -16,29 +18,41 @@ export default function AdminAuditPage() {
   const [pageSize, setPageSize] = useState<number>(25);
 
   useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm), 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Phân trang + tìm kiếm phía server: mỗi trang chỉ tải `pageSize` bản ghi.
+  useEffect(() => {
+    let cancelled = false;
     async function load() {
+      setLoading(true);
       try {
-        const res = await fetch('/api/audit');
+        const params = new URLSearchParams({
+          page: String(currentPage),
+          limit: String(pageSize),
+        });
+        if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
+
+        const res = await fetch(`/api/audit?${params.toString()}`);
         const data = await res.json();
+        if (cancelled) return;
         setLogs(data.logs || []);
+        setTotal(data.total || 0);
       } catch (e) {
         console.error(e);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     load();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPage, pageSize, debouncedSearch]);
 
-  const filtered = logs.filter(l =>
-    l.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    l.userId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    l.details.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    l.action.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const totalPages = Math.ceil(filtered.length / pageSize) || 1;
-  const paginatedLogs = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const totalPages = Math.ceil(total / pageSize) || 1;
+  const paginatedLogs = logs;
 
   const handleSearchChange = (val: string) => {
     setSearchTerm(val);
@@ -70,7 +84,7 @@ export default function AdminAuditPage() {
             />
           </div>
           <div className="text-xs text-slate-500 font-medium w-full sm:w-auto text-left sm:text-right">
-            Tổng cộng: <strong className="text-slate-800">{filtered.length}</strong> / {logs.length} bản ghi
+            Tổng cộng: <strong className="text-slate-800">{total}</strong> bản ghi
           </div>
         </div>
 
@@ -123,7 +137,7 @@ export default function AdminAuditPage() {
             currentPage={currentPage}
             totalPages={totalPages}
             pageSize={pageSize}
-            totalItems={filtered.length}
+            totalItems={total}
             onPageChange={setCurrentPage}
             onPageSizeChange={handlePageSizeChange}
             pageSizeOptions={[10, 25, 50, 100]}

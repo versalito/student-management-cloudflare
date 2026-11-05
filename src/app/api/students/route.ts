@@ -7,83 +7,40 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
-  const search = searchParams.get('search')?.toLowerCase();
+  const search = searchParams.get('search') || undefined;
   const page = parseInt(searchParams.get('page') || '1', 10);
   const limit = parseInt(searchParams.get('limit') || '50', 10);
 
   if (id) {
-    const student = await repo.getStudentById(id);
-    if (!student) return NextResponse.json({ student: null });
-    const enrolledClasses = await repo.getClassesByStudentId(id);
-    return NextResponse.json({
-      student: { ...student, enrolledClassIds: enrolledClasses.map(c => c.id) },
-    });
-  }
-
-  // Tự động đồng bộ đối soát: Quét tất cả user có role STUDENT, nếu thiếu trong hồ sơ students thì tự động bổ sung ngay
-  try {
-    const allUsers = await repo.getAllUsers();
-    const studentUsers = allUsers.filter(u => u.role === 'STUDENT');
-    let existingStudents = await repo.getAllStudents();
-    const existingStudentIds = new Set(existingStudents.map(s => s.id));
-
-    for (const u of studentUsers) {
-      if (!existingStudentIds.has(u.id)) {
-        try {
-          const syncedStudent = {
-            id: u.id,
-            name: u.name,
-            email: u.email || `${u.username}@student.local`,
-            phone: '0900000000',
-            dateOfBirth: '2008-01-01',
-            gender: 'Nam' as const,
-            address: 'TP. Hồ Chí Minh',
-            status: 'Đang học' as const,
-            enrolledClassIds: [],
-            createdAt: new Date().toISOString(),
-          };
-          await repo.createStudent(syncedStudent);
-          existingStudentIds.add(u.id);
-        } catch (e) {
-          console.warn('[AUTO-HEAL-STUDENT] Bỏ qua lỗi đồng bộ hồ sơ cho', u.id, e);
-        }
-      }
+    try {
+      const student = await repo.getStudentById(id);
+      if (!student) return NextResponse.json({ student: null });
+      const enrolledClasses = await repo.getClassesByStudentId(id);
+      return NextResponse.json({
+        student: { ...student, enrolledClassIds: enrolledClasses.map(c => c.id) },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi khi tải học viên';
+      return NextResponse.json({ student: null, error: message }, { status: 500 });
     }
-  } catch (healErr) {
-    console.warn('[AUTO-HEAL-SYNC-ERROR]:', healErr);
   }
 
-  let students = await repo.getAllStudents();
-  // Class membership is normalized in the ClassStudents sheet, không trùng lặp trong Students.
-  const allClasses = await repo.getAllClasses();
-  const classIdsByStudent = new Map<string, string[]>();
-  allClasses.forEach(cls => (cls.studentIds || []).forEach(studentId => {
-    const ids = classIdsByStudent.get(studentId) || [];
-    ids.push(cls.id);
-    classIdsByStudent.set(studentId, ids);
-  }));
-  students = students.map(student => ({
-    ...student,
-    enrolledClassIds: classIdsByStudent.get(student.id) || [],
-  }));
-  if (search) {
-    students = students.filter(s => 
-      s.id.toLowerCase().includes(search) ||
-      s.name.toLowerCase().includes(search) ||
-      (s.phone && s.phone.includes(search)) ||
-      (s.email && s.email.toLowerCase().includes(search))
-    );
+  // Đọc thuần: lọc `search` + phân trang ở tầng dữ liệu (1 query + count),
+  // kèm lớp ghi danh embed. Việc đối soát hồ sơ thiếu chuyển sang
+  // POST /api/admin/reconcile (npm run db:reconcile) — không ghi trong GET.
+  try {
+    const { students, total } = await repo.getStudentsPage({ search, page, limit });
+
+    return NextResponse.json({
+      students,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Lỗi khi tải danh sách học viên';
+    return NextResponse.json({ students: [], total: 0, page, totalPages: 0, error: message }, { status: 500 });
   }
-
-  const total = students.length;
-  const paginated = students.slice((page - 1) * limit, page * limit);
-
-  return NextResponse.json({
-    students: paginated,
-    total,
-    page,
-    totalPages: Math.ceil(total / limit),
-  });
 }
 
 export async function POST(request: Request) {

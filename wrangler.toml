@@ -1,4 +1,4 @@
-name = "student-management"
+name = "student-management-cloudflare"
 main = ".open-next/worker.js"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
@@ -9,9 +9,12 @@ NEXT_PUBLIC_APP_ENV = "production"
 NEXT_PUBLIC_ENABLE_DEV_ROLE_SWITCHER = "false"
 NEXT_PUBLIC_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12Y3dkcXptdmdqZHdxbm54YXhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4Mjk4MTcsImV4cCI6MjEwNTQwNTgxN30.ofWMziipowuH3TtFSvkSloHrpeoXyobJpztMPccrMck"
 NEXT_PUBLIC_SUPABASE_URL = "https://mvcwdqzmvgjdwqnnxaxb.supabase.co"
-SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12Y3dkcXptdmdqZHdxbm54YXhiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4OTgyOTgxNywiZXhwIjoyMTA1NDA1ODE3fQ.h1nJ9iDnHDrxJJbLwtc35sDtgh10egFxeMB4XP0RRg8"
 SUPABASE_URL = "https://mvcwdqzmvgjdwqnnxaxb.supabase.co"
 
 [assets]
 directory = ".open-next/assets"
 binding = "ASSETS"
+
+# SUPABASE_SERVICE_ROLE_KEY KHÔNG đặt ở đây: đây là secret cấp production,
+# nạp bằng `wrangler secret put SUPABASE_SERVICE_ROLE_KEY` (hoặc .dev.vars khi chạy local).
+# Không commit khóa này vào repo công khai.

@@ -1,4 +1,5 @@
 import { repo } from '@/repositories';
+import type { ScheduleSlotQuery } from '@/repositories/IRepository';
 import { NextResponse } from 'next/server';
 import { ConflictEngine } from '@/services/ConflictEngine';
 
@@ -11,34 +12,28 @@ export async function GET(request: Request) {
   const classId = searchParams.get('classId');
   const date = searchParams.get('date');
 
-  let slots = await repo.getAllScheduleSlots();
-  // Enrich normalized schedule rows with class-owned subject and meeting link.
-  const allClasses = await repo.getAllClasses();
-  const classMap = new Map(allClasses.map(cls => [cls.id, cls]));
-  slots = slots.map(slot => {
-    const cls = classMap.get(slot.classId);
-    return {
-      ...slot,
-      subject: slot.subject || cls?.subject || cls?.name || '',
-      meetingLink: slot.meetingLink || cls?.meetingLink || '',
+  try {
+    const query: ScheduleSlotQuery = {
+      date: date || undefined,
+      classId: classId || undefined,
+      teacherId: teacherId || undefined,
     };
-  });
-  if (teacherId) {
-    slots = slots.filter(s => s.teacherId === teacherId);
-  }
-  if (classId) {
-    slots = slots.filter(s => s.classId === classId);
-  }
-  if (studentId) {
-    const studentClasses = await repo.getClassesByStudentId(studentId);
-    const classIds = new Set(studentClasses.map(c => c.id));
-    slots = slots.filter(s => classIds.has(s.classId));
-  }
-  if (date) {
-    slots = slots.filter(s => s.date === date);
-  }
 
-  return NextResponse.json({ slots });
+    // Học viên: chỉ đọc join table ghi danh (1 query nhỏ) rồi lọc slot theo lớp,
+    // thay vì đọc toàn bộ classes + toàn bộ slots.
+    if (studentId) {
+      const memberships = await repo.getClassMemberships({ studentId });
+      const classIds = Array.from(new Set(memberships.map(m => m.classId)));
+      if (classIds.length === 0) return NextResponse.json({ slots: [] });
+      query.classIds = classIds;
+    }
+
+    const slots = await repo.getScheduleSlotsQuery(query);
+    return NextResponse.json({ slots });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Lỗi khi tải lịch học';
+    return NextResponse.json({ slots: [], error: message }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {

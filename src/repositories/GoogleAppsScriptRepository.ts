@@ -1,5 +1,15 @@
 import { LocalRepository } from './LocalRepository';
 import { IRepository } from "./IRepository";
+import type {
+  AuditLogPage,
+  AuditLogPageQuery,
+  ClassMembership,
+  ClassMembershipQuery,
+  ScheduleSlotQuery,
+  ScheduleSlotWithClassName,
+  StudentPage,
+  StudentPageQuery,
+} from "./IRepository";
 import { AppNotification } from "@/types/notification";
 import { User } from "@/types/auth";
 import { Student } from "@/types/student";
@@ -301,7 +311,12 @@ export class GoogleAppsScriptRepository implements IRepository {
   // Students
   public async getStudentById(id: string): Promise<Student | null> {
     const student = await this.callGas<any>("StudentService", "getStudentById", { id });
-    return this.normalizeStudent(student);
+    if (!student) return null;
+    const memberships = await this.getClassMemberships({ studentId: id });
+    return this.normalizeStudent({
+      ...student,
+      enrolledClassIds: memberships.map(m => m.classId),
+    });
   }
 
   public async getAllStudents(): Promise<Student[]> {
@@ -562,6 +577,97 @@ export class GoogleAppsScriptRepository implements IRepository {
   // Audit Logs
   public async getAllAuditLogs(): Promise<AuditLog[]> {
     return this.callGas<AuditLog[]>("AuditLogService", "getAllAuditLogs");
+  }
+
+  // Truy vấn tối ưu: GAS trả cả sheet nên lọc/phân trang tại đây (không có SQL).
+  public async getScheduleSlotsQuery(query: ScheduleSlotQuery = {}): Promise<ScheduleSlotWithClassName[]> {
+    const [slots, classes] = await Promise.all([this.getAllScheduleSlots(), this.getAllClasses()]);
+    const classMap = new Map(classes.map(cls => [cls.id, cls]));
+
+    return slots
+      .filter(slot => {
+        if (query.date && slot.date !== query.date) return false;
+        if (query.dateFrom && slot.date < query.dateFrom) return false;
+        if (query.dateTo && slot.date > query.dateTo) return false;
+        if (query.classId && slot.classId !== query.classId) return false;
+        if (query.classIds && !query.classIds.includes(slot.classId)) return false;
+        if (query.teacherId && slot.teacherId !== query.teacherId) return false;
+        if (query.excludeCancelled && slot.status === 'Đã hủy') return false;
+        return true;
+      })
+      .map(slot => {
+        const cls = classMap.get(slot.classId);
+        return {
+          ...slot,
+          subject: slot.subject || cls?.subject || cls?.name || '',
+          meetingLink: slot.meetingLink || cls?.meetingLink || '',
+          className: cls?.name,
+        };
+      });
+  }
+
+  public async getAttendanceByDate(date: string): Promise<AttendanceRecord[]> {
+    const classes = await this.getAllClasses();
+    const records = await Promise.all(classes.map(cls => this.getAttendanceByClassId(cls.id)));
+    return records.flat().filter(record => record.date === date);
+  }
+
+  public async getClassMemberships(query: ClassMembershipQuery = {}): Promise<ClassMembership[]> {
+    const classes = await this.getAllClasses();
+    return classes.flatMap(cls =>
+      (cls.studentIds || [])
+        .filter(studentId => !query.studentId || studentId === query.studentId)
+        .map(studentId => ({ classId: cls.id, studentId }))
+    );
+  }
+
+  public async getStudentsPage(query: StudentPageQuery = {}): Promise<StudentPage> {
+    const page = Math.max(1, query.page || 1);
+    const limit = Math.min(1000, Math.max(1, query.limit || 50));
+    const search = (query.search || '').trim().toLowerCase();
+
+    const classIdsByStudent = new Map<string, string[]>();
+    for (const membership of await this.getClassMemberships()) {
+      const ids = classIdsByStudent.get(membership.studentId) || [];
+      ids.push(membership.classId);
+      classIdsByStudent.set(membership.studentId, ids);
+    }
+
+    let students = (await this.getAllStudents()).map(student => ({
+      ...student,
+      enrolledClassIds: classIdsByStudent.get(student.id) || [],
+    }));
+
+    if (search) {
+      students = students.filter(student =>
+        student.id.toLowerCase().includes(search) ||
+        student.name.toLowerCase().includes(search) ||
+        (student.phone || '').includes(search) ||
+        (student.email || '').toLowerCase().includes(search)
+      );
+    }
+
+    const from = (page - 1) * limit;
+    return { students: students.slice(from, from + limit), total: students.length };
+  }
+
+  public async getAuditLogsPage(query: AuditLogPageQuery = {}): Promise<AuditLogPage> {
+    const limit = Math.min(500, Math.max(1, query.limit || 50));
+    const offset = Math.max(0, query.offset || 0);
+    const search = (query.search || '').trim().toLowerCase();
+
+    let logs = await this.getAllAuditLogs();
+    logs = [...logs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    if (search) {
+      logs = logs.filter(log =>
+        log.userName.toLowerCase().includes(search) ||
+        log.userId.toLowerCase().includes(search) ||
+        log.action.toLowerCase().includes(search) ||
+        log.details.toLowerCase().includes(search)
+      );
+    }
+
+    return { logs: logs.slice(offset, offset + limit), total: logs.length };
   }
 
   public async addAuditLog(log: Omit<AuditLog, "id" | "timestamp">): Promise<AuditLog> {

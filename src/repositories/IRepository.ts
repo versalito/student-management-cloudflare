@@ -9,6 +9,55 @@ import { TuitionInvoice, PayrollRecord } from '@/types/finance';
 import { SessionPackage } from '@/types/package';
 import { AuditLog } from '@/types/audit';
 
+/**
+ * Bộ lọc cho truy vấn ca học. Dùng để đẩy điều kiện xuống tầng dữ liệu
+ * (SQL) thay vì đọc toàn bộ bảng rồi lọc trong JS.
+ */
+export interface ScheduleSlotQuery {
+  date?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  classId?: string;
+  classIds?: string[];
+  teacherId?: string;
+  excludeCancelled?: boolean;
+}
+
+export interface ScheduleSlotWithClassName extends ScheduleSlot {
+  className?: string;
+}
+
+export interface ClassMembership {
+  classId: string;
+  studentId: string;
+}
+
+export interface ClassMembershipQuery {
+  studentId?: string;
+}
+
+export interface StudentPageQuery {
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface StudentPage {
+  students: Student[];
+  total: number;
+}
+
+export interface AuditLogPageQuery {
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface AuditLogPage {
+  logs: AuditLog[];
+  total: number;
+}
+
 export interface IRepository {
   // Time Shifts
   getAllTimeShifts(): Promise<TimeShift[]>;
@@ -103,6 +152,13 @@ export interface IRepository {
   addNotification(notification: Omit<AppNotification, 'id' | 'createdAt'>): Promise<AppNotification>;
   markNotificationAsRead(id: string): Promise<boolean>;
   markAllNotificationsAsRead(userId?: string): Promise<boolean>;
+
+  // Truy vấn tối ưu: lọc/phân trang ở tầng dữ liệu
+  getScheduleSlotsQuery(query?: ScheduleSlotQuery): Promise<ScheduleSlotWithClassName[]>;
+  getAttendanceByDate(date: string): Promise<AttendanceRecord[]>;
+  getClassMemberships(query?: ClassMembershipQuery): Promise<ClassMembership[]>;
+  getStudentsPage(query?: StudentPageQuery): Promise<StudentPage>;
+  getAuditLogsPage(query?: AuditLogPageQuery): Promise<AuditLogPage>;
 
   // Reset/Re-seed
   resetData(): Promise<void>;
