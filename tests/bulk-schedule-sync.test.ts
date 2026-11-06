@@ -4,6 +4,7 @@ import { LocalRepository } from '../src/repositories/LocalRepository';
 import { BulkScheduleService } from '../src/services/BulkScheduleService';
 import { POST as bulkGenerateRoute } from '../src/app/api/schedule/bulk-generate/route';
 import { POST as createClassRoute, PUT as updateClassRoute, DELETE as deleteClassRoute } from '../src/app/api/classes/route';
+import { authed, sessionCookie } from './helpers/auth';
 
 test('Bulk Schedule Generation & 2-Way Sync Suite', async (t) => {
   const repo = LocalRepository.getInstance();
@@ -90,7 +91,7 @@ test('Bulk Schedule Generation & 2-Way Sync Suite', async (t) => {
     };
     await repo.createClass(testClass);
 
-    const req = new Request('http://localhost/api/schedule/bulk-generate', {
+    const req = authed('http://localhost/api/schedule/bulk-generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -109,7 +110,7 @@ test('Bulk Schedule Generation & 2-Way Sync Suite', async (t) => {
   });
 
   await t.test('3. Kiểm thử tạo lớp mới với autoGenerateSchedule = true', async () => {
-    const req = new Request('http://localhost/api/classes', {
+    const req = authed('http://localhost/api/classes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -199,7 +200,7 @@ test('Bulk Schedule Generation & 2-Way Sync Suite', async (t) => {
     });
 
     // Cập nhật lớp: Đổi sang GV002, shift 2, link mới
-    const req = new Request('http://localhost/api/classes', {
+    const req = authed('http://localhost/api/classes', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -258,7 +259,7 @@ test('Bulk Schedule Generation & 2-Way Sync Suite', async (t) => {
       status: 'Đã lên lịch',
     });
 
-    const req = new Request(`http://localhost/api/classes?id=${delClassId}`, {
+    const req = authed(`http://localhost/api/classes?id=${delClassId}`, {
       method: 'DELETE',
     });
 

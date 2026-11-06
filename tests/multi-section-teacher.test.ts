@@ -4,6 +4,7 @@ import { POST as createClassRoute } from '../src/app/api/classes/route';
 import { GET as getSectionsRoute, PUT as putSectionRoute, DELETE as deleteSectionRoute } from '../src/app/api/classes/sections/route';
 import { POST as generateRoute } from '../src/app/api/schedule/bulk-generate/route';
 import { repo } from '../src/repositories';
+import { authed, sessionCookie } from './helpers/auth';
 
 function pad(n: number): string {
   return String(n).padStart(2, '0');
@@ -34,7 +35,7 @@ const NEXT_MON = nextDow(2, TOMORROW);
 
 describe('Multi-Section Class: nhiều ca, đổi giáo viên theo từng ca', () => {
   it('1. Tạo lớp với nhiều ca cùng lúc qua POST /api/classes (sections mảng)', async () => {
-    const req = new Request('http://localhost/api/classes', {
+    const req = authed('http://localhost/api/classes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -68,7 +69,7 @@ describe('Multi-Section Class: nhiều ca, đổi giáo viên theo từng ca', (
   });
 
   it('2. Sinh lịch rải đều theo từng ca: ca nào giờ/thứ riêng thì slot riêng', async () => {
-    const req = new Request('http://localhost/api/classes', {
+    const req = authed('http://localhost/api/classes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -94,7 +95,7 @@ describe('Multi-Section Class: nhiều ca, đổi giáo viên theo từng ca', (
     assert.equal(sections.length, 2);
 
     const endDate = addDays(NEXT_MON, 6);
-    const gen = new Request('http://localhost/api/schedule/bulk-generate', {
+    const gen = authed('http://localhost/api/schedule/bulk-generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -122,7 +123,7 @@ describe('Multi-Section Class: nhiều ca, đổi giáo viên theo từng ca', (
   });
 
   it('3. Đổi giáo viên từng ca và đồng bộ slot tương lai của ca đó', async () => {
-    const req = new Request('http://localhost/api/classes', {
+    const req = authed('http://localhost/api/classes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -143,7 +144,7 @@ describe('Multi-Section Class: nhiều ca, đổi giáo viên theo từng ca', (
     const clsId = data.class.id;
 
     const endDate = addDays(NEXT_MON, 6);
-    await generateRoute(new Request('http://localhost/api/schedule/bulk-generate', {
+    await generateRoute(authed('http://localhost/api/schedule/bulk-generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ classIds: [clsId], startDate: NEXT_MON, endDate }),
@@ -152,7 +153,7 @@ describe('Multi-Section Class: nhiều ca, đổi giáo viên theo từng ca', (
     const sections = await repo.getClassSections(clsId);
     const sec2 = sections.find((s) => s.startTime === '10:15')!;
 
-    const putRes = await putSectionRoute(new Request('http://localhost/api/classes/sections', {
+    const putRes = await putSectionRoute(authed('http://localhost/api/classes/sections', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sectionId: sec2.id, teacherId: 'GV004', syncFutureSlots: true }),
@@ -171,7 +172,7 @@ describe('Multi-Section Class: nhiều ca, đổi giáo viên theo từng ca', (
   });
 
   it('4. Đổi thứ của ca sẽ hủy buổi tương lai không còn thuộc thứ đó', async () => {
-    const req = new Request('http://localhost/api/classes', {
+    const req = authed('http://localhost/api/classes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -191,7 +192,7 @@ describe('Multi-Section Class: nhiều ca, đổi giáo viên theo từng ca', (
     const clsId = data.class.id;
 
     const endDate = addDays(NEXT_MON, 6);
-    await generateRoute(new Request('http://localhost/api/schedule/bulk-generate', {
+    await generateRoute(authed('http://localhost/api/schedule/bulk-generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ classIds: [clsId], startDate: NEXT_MON, endDate }),
@@ -199,7 +200,7 @@ describe('Multi-Section Class: nhiều ca, đổi giáo viên theo từng ca', (
 
     const sections = await repo.getClassSections(clsId);
     const sec = sections[0];
-    await putSectionRoute(new Request('http://localhost/api/classes/sections', {
+    await putSectionRoute(authed('http://localhost/api/classes/sections', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sectionId: sec.id, scheduleDays: [2], syncFutureSlots: true }),
@@ -212,7 +213,7 @@ describe('Multi-Section Class: nhiều ca, đổi giáo viên theo từng ca', (
   });
 
   it('5. Xóa ca sẽ hủy buổi tương lai của ca đó', async () => {
-    const req = new Request('http://localhost/api/classes', {
+    const req = authed('http://localhost/api/classes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -233,7 +234,7 @@ describe('Multi-Section Class: nhiều ca, đổi giáo viên theo từng ca', (
     const sections = await repo.getClassSections(clsId);
     const sec = sections[0];
 
-    const delRes = await deleteSectionRoute(new Request('http://localhost/api/classes/sections?id=' + sec.id, {
+    const delRes = await deleteSectionRoute(authed('http://localhost/api/classes/sections?id=' + sec.id, {
       method: 'DELETE',
     }));
     const delData = await delRes.json();
@@ -244,7 +245,7 @@ describe('Multi-Section Class: nhiều ca, đổi giáo viên theo từng ca', (
   });
 
   it('6. GET /api/classes/sections?classIds=... trả ca theo nhiều lớp trong 1 request', async () => {
-    const req = new Request('http://localhost/api/classes', {
+    const req = authed('http://localhost/api/classes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -263,7 +264,7 @@ describe('Multi-Section Class: nhiều ca, đổi giáo viên theo từng ca', (
     const resA = await createClassRoute(req);
     const clsA = (await resA.json()).class;
 
-    const reqB = new Request('http://localhost/api/classes', {
+    const reqB = authed('http://localhost/api/classes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -283,7 +284,7 @@ describe('Multi-Section Class: nhiều ca, đổi giáo viên theo từng ca', (
     const clsB = bBody.class;
     assert.ok(clsB, 'Lớp B phải được tạo: ' + JSON.stringify(bBody));
 
-    const gres = await getSectionsRoute(new Request(
+    const gres = await getSectionsRoute(authed(
       'http://localhost/api/classes/sections?classIds=' + clsA.id + ',' + clsB.id
     ));
     const gdata = await gres.json();

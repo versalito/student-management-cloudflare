@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
-import { AttendanceRecord } from '@/types/attendance';
 import { Student } from '@/types/student';
+import { authenticate } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
+  const auth = await authenticate(request, ['ADMIN', 'TEACHER']);
+  if (auth.response) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     // Mặc định lấy tháng hiện tại theo giờ Việt Nam.
@@ -14,10 +17,9 @@ export async function GET(request: Request) {
       new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Saigon' }).format(new Date()).slice(0, 7);
     const classId = searchParams.get('classId');
 
-    // 1. Lấy toàn bộ học viên & lớp học
-    const [allStudents, allClasses, allSlots] = await Promise.all([
+    // 1. Lấy toàn bộ học viên // 1. Lấy toàn bộ học viên & lớp học ca học
+    const [allStudents, allSlots] = await Promise.all([
       repo.getAllStudents(),
-      repo.getAllClasses(),
       repo.getAllScheduleSlots(),
     ]);
 
@@ -25,16 +27,16 @@ export async function GET(request: Request) {
     const slotsInMonth = allSlots.filter(s => s.date.startsWith(month));
     const slotIdsInMonth = new Set(slotsInMonth.map(s => s.id));
 
-    // Lấy records điểm danh
-    let records: AttendanceRecord[] = [];
-    for (const cls of allClasses) {
-      if (classId && classId !== 'ALL' && cls.id !== classId) continue;
-      const clsRecords = await repo.getAttendanceByClassId(cls.id);
-      records.push(...clsRecords);
-    }
+    // Sổ điểm danh của tháng: 1 query, không lặp theo lớp (N+1 cũ).
+    const records = await repo.getAttendanceByMonth(month);
 
-    // Lọc records thuộc tháng đã chọn
-    const monthlyRecords = records.filter(r => r.date.startsWith(month) || slotIdsInMonth.has(r.scheduleSlotId));
+    // Giữ bản ghi thuộc tháng, hoặc bản ghi gắn ca học của tháng này.
+    const typeFiltered = classId && classId !== 'ALL'
+      ? records.filter(r => r.classId === classId)
+      : records;
+    const monthlyRecords = typeFiltered.filter(
+      r => r.date.startsWith(month) || slotIdsInMonth.has(r.scheduleSlotId)
+    );
 
     // Gom dữ liệu theo từng student
     const studentMap = new Map<string, Student>();

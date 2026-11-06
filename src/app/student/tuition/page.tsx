@@ -143,7 +143,7 @@ export default function StudentTuitionPage() {
 
     setCancelingInvoiceId(inv.id);
     try {
-      const res = await fetch(`/api/finance?invoiceId=${inv.id}&actorId=${currentUser.id}&actorName=${encodeURIComponent(currentUser.name || 'Học viên')}`, {
+      const res = await fetch(`/api/finance?invoiceId=${inv.id}`, {
         method: 'DELETE',
       });
       const data = await res.json();
@@ -614,7 +614,7 @@ export default function StudentTuitionPage() {
               ) : (
                 <div className="space-y-4 text-center">
                   <div className="p-3 bg-muted rounded-card border border-line inline-block">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    { }
                     <img
                       src={generateVietQRUrl({
                         bankId: bankConfig.bankId,

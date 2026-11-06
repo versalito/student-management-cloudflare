@@ -9,7 +9,7 @@ export const Avatar: React.FC<{
 }> = ({ name, src, size = 40, className }) => {
   const initial = (name || 'U').trim().charAt(0).toUpperCase();
   return src ? (
-    // eslint-disable-next-line @next/next/no-img-element
+     
     <img
       src={src}
       alt={name || 'Ảnh đại diện'}

@@ -7,9 +7,10 @@ import { POST as swapPost } from '../src/app/api/student/swap/route';
 import { ClassEntity, ClassSection } from '../src/types/classroom';
 import { ScheduleSlot } from '../src/types/schedule';
 import { dateToDayOfWeek } from '../src/utils/date';
+import { authed, sessionCookie } from './helpers/auth';
 
 function enrollReq(payload: Record<string, unknown>): Request {
-  return new Request('http://localhost/api/classes/enroll', {
+  return authed('http://localhost/api/classes/enroll', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -17,7 +18,7 @@ function enrollReq(payload: Record<string, unknown>): Request {
 }
 
 function swapReq(payload: Record<string, unknown>): Request {
-  return new Request('http://localhost/api/student/swap', {
+  return authed('http://localhost/api/student/swap', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -154,14 +155,14 @@ describe('Ca riêng + Thứ riêng + Đổi ca trong ngày (schedule_days & stud
     assert.equal(swapData.swap.status, 'ACTIVE');
 
     const attRes = await attendanceGet(
-      new Request('http://localhost/api/attendance?slotId=SCH_SD001_MON_B')
+      authed('http://localhost/api/attendance?slotId=SCH_SD001_MON_B')
     );
     const attData = await attRes.json();
     const rosterIds = (attData.records || []).map((r: any) => r.studentId);
     assert.ok(rosterIds.includes(studentId), 'Roster ca đích phải có học sinh: ' + JSON.stringify(rosterIds));
 
     const attResA = await attendanceGet(
-      new Request('http://localhost/api/attendance?slotId=SCH_SD001_MON_A')
+      authed('http://localhost/api/attendance?slotId=SCH_SD001_MON_A')
     );
     const attDataA = await attResA.json();
     const rosterA = (attDataA.records || []).map((r: any) => r.studentId);

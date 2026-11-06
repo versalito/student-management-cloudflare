@@ -4,10 +4,14 @@ import { ClassSection } from '@/types/classroom';
 import { ScheduleSlot } from '@/types/schedule';
 import { BulkScheduleService } from '@/services/BulkScheduleService';
 import { getTodayDateStr, getTodayDateStrByDate, dateToDayOfWeek } from '@/utils/date';
+import { authenticate } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','TEACHER','STUDENT']);
+  if (auth.response) return auth.response;
+
   const { searchParams } = new URL(request.url);
   const classId = searchParams.get('classId');
   const studentId = searchParams.get('studentId');
@@ -48,6 +52,11 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','TEACHER']);
+  if (auth.response) return auth.response;
+  const actorId = auth.user.id;
+  const actorName = auth.user.name;
+
   try {
     const body = await request.json();
     const { classId, name, shiftId, startTime, endTime, scheduleDays, teacherId } = body;
@@ -82,6 +91,11 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','TEACHER']);
+  if (auth.response) return auth.response;
+  const actorId = auth.user.id;
+  const actorName = auth.user.name;
+
   try {
     const body = await request.json();
     const {
@@ -94,7 +108,6 @@ export async function PUT(request: Request) {
       teacherId,
       isActive,
       syncFutureSlots = true,
-      actorId = 'ADMIN001',
     } = body;
     if (!sectionId) return NextResponse.json({ error: 'Thiếu sectionId' }, { status: 400 });
     const sec = await repo.getSectionById(sectionId);
@@ -200,7 +213,7 @@ export async function PUT(request: Request) {
     await repo.addAuditLog({
       action: 'UPDATE',
       userId: actorId,
-      userName: actorId === 'ADMIN001' ? 'Quản trị viên' : actorId,
+      userName: auth.user.name,
       userRole: 'ADMIN',
       targetResource: 'CLASS_SECTION',
       targetId: sec.id,
@@ -214,10 +227,13 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
-    const actorId = searchParams.get('actorId') || 'ADMIN001';
+    const actorId = auth.user.id;
     if (!id) return NextResponse.json({ error: 'Thiếu id' }, { status: 400 });
     const sec = await repo.getSectionById(id);
     if (!sec) return NextResponse.json({ error: 'Không tìm thấy ca học' }, { status: 404 });
@@ -271,7 +287,7 @@ export async function DELETE(request: Request) {
     await repo.addAuditLog({
       action: 'DELETE',
       userId: actorId,
-      userName: actorId === 'ADMIN001' ? 'Quản trị viên' : actorId,
+      userName: auth.user.name,
       userRole: 'ADMIN',
       targetResource: 'CLASS_SECTION',
       targetId: id,

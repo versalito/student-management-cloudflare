@@ -6,7 +6,6 @@ import { usePathname } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { Menu, LogOut, Compass } from 'lucide-react';
 import { NotificationDropdown } from './NotificationDropdown';
-import { QuickRoleSwitcher } from './QuickRoleSwitcher';
 import { Avatar } from '@/components/ui/Avatar';
 import { NAV_GROUPS, findActiveNav } from './navConfig';
 
@@ -22,9 +21,6 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ title, subtitle }) => {
   const pathname = usePathname();
   const { currentUser, logout, isMobileMenuOpen, setIsMobileMenuOpen } = useApp();
-  const showDevSwitcher =
-    process.env.NODE_ENV === 'development' ||
-    process.env.NEXT_PUBLIC_ENABLE_DEV_ROLE_SWITCHER === 'true';
 
   const activeNav = currentUser ? findActiveNav(NAV_GROUPS[currentUser.role], pathname) : undefined;
   const pageTitle = title || activeNav?.label || 'Trang';
@@ -55,13 +51,6 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle }) => {
       </div>
 
       <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-        {showDevSwitcher && (
-          <>
-            <QuickRoleSwitcher />
-            <div className="h-5 w-px bg-line hidden sm:block" />
-          </>
-        )}
-
         <NotificationDropdown />
 
         {currentUser && (
@@ -74,7 +63,7 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle }) => {
         )}
 
         <button
-          onClick={logout}
+          onClick={() => void logout()}
           title="Đăng xuất"
           aria-label="Đăng xuất"
           className="p-2 text-muted-foreground hover:text-danger hover:bg-danger-soft rounded-field transition cursor-pointer"

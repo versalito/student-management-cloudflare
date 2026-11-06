@@ -15,11 +15,13 @@ import { uniFilterToSql } from '@/lib/studentFilters';
 import { Student } from '@/types/student';
 import { Teacher } from '@/types/teacher';
 import { ClassEntity, ClassSection } from '@/types/classroom';
+import { bumpReferenceVersion, REFERENCE_CACHE_SCOPE } from '@/lib/cache/referenceCache';
 import { ScheduleSlot, ClassRequest, TimeShift, StudentSlotSwap } from '@/types/schedule';
 import { AttendanceRecord } from '@/types/attendance';
 import { TuitionInvoice, PayrollRecord } from '@/types/finance';
 import { SessionPackage } from '@/types/package';
 import { AuditLog } from '@/types/audit';
+import { BankTransaction } from '@/types/bank';
 import { AppNotification } from '@/types/notification';
 import { getSupabaseAdminClient } from '@/lib/supabase';
 import { dateToDayOfWeek } from '@/utils/date';
@@ -697,6 +699,35 @@ export class SupabaseRepository implements IRepository {
     }
   }
 
+  public async getStudentsByIds(ids: string[]): Promise<Student[]> {
+    // Không có mã nào -> không mở round trip; `in()` rỗng sẽ trả toàn bảng.
+    const unique = Array.from(new Set(ids.filter(Boolean)));
+    if (unique.length === 0) return [];
+
+    const client = this.getClient();
+    if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
+
+    // PostgREST nhận mã qua query string: 100 mã/lần giữ URL an toàn với danh
+    // sách lớp lớn, vẫn chỉ là vài round trip song song.
+    const chunks: string[][] = [];
+    for (let i = 0; i < unique.length; i += 100) {
+      chunks.push(unique.slice(i, i + 100));
+    }
+
+    const rows = await Promise.all(
+      chunks.map(async (chunk) => {
+        const { data, error } = await client
+          .from('students')
+          .select('*, class_students(class_id)')
+          .in('id', chunk);
+        if (error) throw new Error(error.message);
+        return data || [];
+      })
+    );
+
+    return rows.flat().map(mapStudentFromDb);
+  }
+
   public async getAllStudents(): Promise<Student[]> {
     const client = this.getClient();
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local"); // getAllStudents();
@@ -756,11 +787,10 @@ export class SupabaseRepository implements IRepository {
 
       q = q.order('id', { ascending: true });
 
-      // `limit=all`: bỏ range để lấy đủ danh sách cho ô chọn học sinh.
-      if (!query.all) {
-        const from = (page - 1) * limit;
-        q = q.range(from, from + limit - 1);
-      }
+      // `limit=all` là trang duy nhất nhưng vẫn có trần: không bao giờ đọc
+      // không giới hạn, kể cả khi phía gọi xin "tất cả".
+      const from = query.all ? 0 : (page - 1) * limit;
+      q = q.range(from, from + limit - 1);
 
       const { data, error, count } = await q;
 
@@ -800,7 +830,7 @@ export class SupabaseRepository implements IRepository {
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local"); // updateStudent(student);
 
     try {
-      let row = mapStudentToDb(student);
+      const row = mapStudentToDb(student);
       let { error: updateErr } = await client.from('students').update(row).eq('id', student.id);
       if (updateErr && updateErr.code === 'PGRST204') {
         const { home_town, grade_level, target_university, custom_university, exam_block, study_goal, facebook_url, other_notes, registered_date, total_sessions_in_month, attended_sessions_in_month, absent_sessions_in_month, remaining_sessions, ...legacyRow } = row;
@@ -831,7 +861,7 @@ export class SupabaseRepository implements IRepository {
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local"); // createStudent(student);
 
     try {
-      let row = mapStudentToDb(student);
+      const row = mapStudentToDb(student);
       let { error: insertErr } = await client.from('students').insert(row);
       if (insertErr && insertErr.code === 'PGRST204') {
         const { home_town, grade_level, target_university, custom_university, exam_block, study_goal, facebook_url, other_notes, registered_date, total_sessions_in_month, attended_sessions_in_month, absent_sessions_in_month, remaining_sessions, ...legacyRow } = row;
@@ -919,6 +949,7 @@ export class SupabaseRepository implements IRepository {
   }
 
   public async updateTeacher(teacher: Teacher): Promise<Teacher> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const client = this.getClient();
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local"); // updateTeacher(teacher);
 
@@ -935,6 +966,7 @@ export class SupabaseRepository implements IRepository {
   }
 
   public async createTeacher(teacher: Teacher): Promise<Teacher> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const client = this.getClient();
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local"); // createTeacher(teacher);
 
@@ -951,6 +983,7 @@ export class SupabaseRepository implements IRepository {
   }
 
   public async deleteTeacher(id: string): Promise<boolean> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const client = this.getClient();
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local"); // deleteTeacher(id);
 
@@ -1071,6 +1104,7 @@ export class SupabaseRepository implements IRepository {
   }
 
   public async updateClass(classEntity: ClassEntity): Promise<ClassEntity> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const client = this.getClient();
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local"); // updateClass(classEntity);
 
@@ -1097,6 +1131,7 @@ export class SupabaseRepository implements IRepository {
   }
 
   public async deleteClass(id: string): Promise<boolean> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const client = getSupabaseAdminClient();
     if (!client) {
       throw new Error('Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local');
@@ -1110,6 +1145,7 @@ export class SupabaseRepository implements IRepository {
   }
 
   public async createClass(classEntity: ClassEntity): Promise<ClassEntity> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const client = this.getClient();
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local"); // createClass(classEntity);
 
@@ -1206,6 +1242,7 @@ export class SupabaseRepository implements IRepository {
   }
 
   public async createClassSection(section: ClassSection): Promise<ClassSection> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const client = this.getClient();
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
 
@@ -1215,6 +1252,7 @@ export class SupabaseRepository implements IRepository {
   }
 
   public async updateClassSection(section: ClassSection): Promise<ClassSection> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const client = this.getClient();
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
 
@@ -1228,6 +1266,7 @@ export class SupabaseRepository implements IRepository {
   }
 
   public async deleteClassSection(id: string): Promise<boolean> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const client = this.getClient();
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
     const { error } = await client.from('class_sections').delete().eq('id', id);
@@ -1236,6 +1275,7 @@ export class SupabaseRepository implements IRepository {
   }
 
   public async addStudentToSection(sectionId: string, studentId: string, scheduleDays?: number[]): Promise<void> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const client = this.getClient();
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
     // Upsert giu nguyen schedule_days cu neu khong truyen tham so moi.
@@ -1246,6 +1286,7 @@ export class SupabaseRepository implements IRepository {
   }
 
   public async removeStudentFromSection(sectionId: string, studentId: string): Promise<void> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const client = this.getClient();
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
     const { error } = await client.from('class_section_students').delete().eq('section_id', sectionId).eq('student_id', studentId);
@@ -1363,6 +1404,22 @@ export class SupabaseRepository implements IRepository {
   }
 
   /**
+   * Số lớn nhất trong các mã `SCHxxxx`.
+   *
+   * Không thể `order by id desc limit 1` vì so sánh chuỗi xếp `SCH9999` sau
+   * `SCH10000`; cũng không thể đọc cả bảng chỉ để lấy max. Hàm SQL
+   * `max_schedule_slot_number()` bóc phần số rồi lấy max ngay trong Postgres.
+   */
+  public async getMaxScheduleSlotNumber(): Promise<number> {
+    const client = this.getClient();
+    if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
+
+    const { data, error } = await client.rpc('max_schedule_slot_number');
+    if (error) throw new Error(error.message);
+    return Number(data) || 0;
+  }
+
+  /**
    * Truy vấn ca học có lọc/giới hạn cột. Chỉ đọc các dòng khớp điều kiện
    * (index `idx_schedule_slots_date`, `(class_id, date)`) thay vì cả bảng.
    */
@@ -1445,6 +1502,7 @@ export class SupabaseRepository implements IRepository {
   }
 
   public async createTimeShift(shift: TimeShift): Promise<TimeShift> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const client = this.getClient();
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local"); // createTimeShift(shift);
 
@@ -1467,6 +1525,7 @@ export class SupabaseRepository implements IRepository {
   }
 
   public async updateTimeShift(shift: TimeShift): Promise<TimeShift> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const client = this.getClient();
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local"); // updateTimeShift(shift);
 
@@ -1488,6 +1547,7 @@ export class SupabaseRepository implements IRepository {
   }
 
   public async deleteTimeShift(id: number): Promise<boolean> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const client = this.getClient();
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local"); // deleteTimeShift(id);
 
@@ -1749,12 +1809,39 @@ export class SupabaseRepository implements IRepository {
     }
   }
 
+  /**
+   * Đọc sổ điểm danh của cả tháng bằng một query (`date >= đầu tháng`, `< đầu tháng sau`).
+   *
+   * Bản cũ lặp từng lớp và gọi `getAttendanceByClassId`, tức N+1 round trip cho
+   * bảng thống kê chuyên cần.
+   */
+  public async getAttendanceByMonth(month: string): Promise<AttendanceRecord[]> {
+    const client = this.getClient();
+    if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
+
+    const [yearStr, monthStr] = month.split('-');
+    const year = Number(yearStr);
+    const mon = Number(monthStr);
+    const start = `${month}-01`;
+    const nextStart = mon === 12
+      ? `${year + 1}-01-01`
+      : `${year}-${String(mon + 1).padStart(2, '0')}-01`;
+
+    const { data, error } = await client
+      .from('attendance_records')
+      .select('*')
+      .gte('date', start)
+      .lt('date', nextStart);
+    if (error) throw new Error(error.message);
+    return (data || []).map(mapAttendanceRecordFromDb);
+  }
+
   public async saveAttendanceRecord(record: AttendanceRecord): Promise<AttendanceRecord> {
     const client = this.getClient();
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local"); // saveAttendanceRecord(record);
 
     try {
-      let row = mapAttendanceRecordToDb(record);
+      const row = mapAttendanceRecordToDb(record);
       let res = await client
         .from('attendance_records')
         .upsert(row, { onConflict: 'schedule_slot_id,student_id' });
@@ -1946,6 +2033,7 @@ export class SupabaseRepository implements IRepository {
   }
 
   public async createSessionPackage(pkg: SessionPackage): Promise<SessionPackage> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const client = this.getClient();
     if (!client) {
       throw new Error('Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local');
@@ -1958,6 +2046,7 @@ export class SupabaseRepository implements IRepository {
   }
 
   public async updateSessionPackage(pkg: SessionPackage): Promise<SessionPackage> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const client = this.getClient();
     if (!client) {
       throw new Error('Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local');
@@ -1970,6 +2059,7 @@ export class SupabaseRepository implements IRepository {
   }
 
   public async deleteSessionPackage(id: string): Promise<boolean> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const client = this.getClient();
     if (!client) {
       throw new Error('Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local');
@@ -2356,6 +2446,81 @@ export class SupabaseRepository implements IRepository {
   }
 
   // --------------------------------------------------------------------------
+  // SO GIAO DICH NGAN HANG (chong xu ly trung webhook)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Ghi nhan giao dich theo khoa chinh `reference_code`.
+   * `insert` (khong phai `upsert`) de database tu choi ban trung: 23505 = da xu ly.
+   */
+  public async claimBankTransaction(tx: BankTransaction): Promise<BankTransaction | null> {
+    const client = this.getClient();
+    if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
+
+    const row = {
+      reference_code: tx.referenceCode,
+      gateway: tx.gateway,
+      transfer_amount: tx.transferAmount,
+      content: tx.content,
+      applied_amount: tx.appliedAmount,
+      invoice_ids: tx.invoiceIds,
+      student_id: tx.studentId || null,
+      result_status: tx.resultStatus,
+      result_message: tx.resultMessage,
+      received_at: tx.receivedAt || new Date().toISOString(),
+    };
+
+    const { error } = await client.from('bank_transactions').insert(row);
+    if (error) {
+      // 23505 = unique_violation -> giao dich nay da duoc xu ly truoc do.
+      if (error.code === '23505') return null;
+      throw new Error(error.message);
+    }
+    return { ...tx, receivedAt: row.received_at };
+  }
+
+  public async getBankTransaction(referenceCode: string): Promise<BankTransaction | null> {
+    const client = this.getClient();
+    if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
+
+    const { data, error } = await client
+      .from('bank_transactions')
+      .select('*')
+      .eq('reference_code', referenceCode)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return null;
+    return {
+      referenceCode: data.reference_code,
+      gateway: data.gateway,
+      transferAmount: Number(data.transfer_amount) || 0,
+      content: data.content || '',
+      appliedAmount: Number(data.applied_amount) || 0,
+      invoiceIds: data.invoice_ids || '',
+      studentId: data.student_id || undefined,
+      resultStatus: Number(data.result_status) || 0,
+      resultMessage: data.result_message || '',
+      receivedAt: data.received_at || undefined,
+    };
+  }
+
+  public async finishBankTransaction(referenceCode: string, patch: Partial<BankTransaction>): Promise<void> {
+    const client = this.getClient();
+    if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
+
+    const row: Record<string, unknown> = {};
+    if (patch.appliedAmount !== undefined) row.applied_amount = patch.appliedAmount;
+    if (patch.invoiceIds !== undefined) row.invoice_ids = patch.invoiceIds;
+    if (patch.studentId !== undefined) row.student_id = patch.studentId || null;
+    if (patch.resultStatus !== undefined) row.result_status = patch.resultStatus;
+    if (patch.resultMessage !== undefined) row.result_message = patch.resultMessage;
+    if (Object.keys(row).length === 0) return;
+
+    const { error } = await client.from('bank_transactions').update(row).eq('reference_code', referenceCode);
+    if (error) throw new Error(error.message);
+  }
+
+  // --------------------------------------------------------------------------
   // XOA DU LIEU (khong chen lai du lieu mau)
   // --------------------------------------------------------------------------
 
@@ -2363,6 +2528,12 @@ export class SupabaseRepository implements IRepository {
     const client = this.getClient();
     if (!client) {
       throw new Error('Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local');
+    }
+
+    // bank_transactions không có cột id -> xoá theo khoá chính riêng.
+    const { error: bankError } = await client.from('bank_transactions').delete().neq('reference_code', '___PLACEHOLDER___');
+    if (bankError) {
+      throw new Error(`Khong the xoa du lieu bang bank_transactions: ${bankError.message}`);
     }
 
     const tables = [

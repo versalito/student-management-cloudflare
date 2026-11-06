@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { POST } from '../src/app/api/auth/login/route';
 import { LocalRepository } from '../src/repositories/LocalRepository';
+import { authed, sessionCookie } from './helpers/auth';
 
 test('Auth API Suite: Kiểm tra xác thực đăng nhập qua /api/auth/login', async (t) => {
   const repo = LocalRepository.getInstance();
 
   await t.test('1. Đăng nhập sai mật khẩu -> nhận 401 Unauthorized', async () => {
-    const req = new Request('http://localhost:3000/api/auth/login', {
+    const req = authed('http://localhost:3000/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -25,7 +26,7 @@ test('Auth API Suite: Kiểm tra xác thực đăng nhập qua /api/auth/login',
   });
 
   await t.test('2. Đăng nhập đúng mật khẩu (admin / admin123) -> nhận 200 OK và user profile sanitized', async () => {
-    const req = new Request('http://localhost:3000/api/auth/login', {
+    const req = authed('http://localhost:3000/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -51,7 +52,7 @@ test('Auth API Suite: Kiểm tra xác thực đăng nhập qua /api/auth/login',
   });
 
   await t.test('3. Đăng nhập bằng mã định danh viết hoa (ADMIN001 / admin123) -> nhận 200 OK', async () => {
-    const req = new Request('http://localhost:3000/api/auth/login', {
+    const req = authed('http://localhost:3000/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -68,7 +69,7 @@ test('Auth API Suite: Kiểm tra xác thực đăng nhập qua /api/auth/login',
   });
 
   await t.test('4. Đăng nhập tài khoản giáo viên (gv001 / teacher123) -> nhận 200 OK', async () => {
-    const req = new Request('http://localhost:3000/api/auth/login', {
+    const req = authed('http://localhost:3000/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -86,7 +87,7 @@ test('Auth API Suite: Kiểm tra xác thực đăng nhập qua /api/auth/login',
   });
 
   await t.test('5. Đăng nhập tài khoản học viên (st001 / student123) -> nhận 200 OK', async () => {
-    const req = new Request('http://localhost:3000/api/auth/login', {
+    const req = authed('http://localhost:3000/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -104,7 +105,7 @@ test('Auth API Suite: Kiểm tra xác thực đăng nhập qua /api/auth/login',
   });
 
   await t.test('6. Tài khoản không tồn tại -> nhận 401 Unauthorized', async () => {
-    const req = new Request('http://localhost:3000/api/auth/login', {
+    const req = authed('http://localhost:3000/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -132,7 +133,7 @@ test('Auth API Suite: Kiểm tra xác thực đăng nhập qua /api/auth/login',
     };
     await repo.createUser(disabledUser);
 
-    const req = new Request('http://localhost:3000/api/auth/login', {
+    const req = authed('http://localhost:3000/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -149,7 +150,7 @@ test('Auth API Suite: Kiểm tra xác thực đăng nhập qua /api/auth/login',
   });
 
   await t.test('8. Thiếu username hoặc password -> nhận 401 Unauthorized', async () => {
-    const reqEmptyPass = new Request('http://localhost:3000/api/auth/login', {
+    const reqEmptyPass = authed('http://localhost:3000/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -161,7 +162,7 @@ test('Auth API Suite: Kiểm tra xác thực đăng nhập qua /api/auth/login',
     const res1 = await POST(reqEmptyPass);
     assert.equal(res1.status, 401);
 
-    const reqEmptyUser = new Request('http://localhost:3000/api/auth/login', {
+    const reqEmptyUser = authed('http://localhost:3000/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

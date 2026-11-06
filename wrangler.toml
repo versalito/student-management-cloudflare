@@ -3,6 +3,15 @@ main = ".open-next/worker.js"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
+# Log/exception của Worker hiện trong Cloudflare Dashboard (Workers Logs).
+[observability]
+enabled = true
+
+# Đặt Worker gần database (Supabase) thay vì gần người dùng: mỗi request có
+# nhiều round trip Worker -> PostgREST hơn là tới browser.
+[placement]
+mode = "smart"
+
 [vars]
 DATA_SOURCE = "supabase"
 NEXT_PUBLIC_APP_ENV = "production"
@@ -15,6 +24,17 @@ SUPABASE_URL = "https://mvcwdqzmvgjdwqnnxaxb.supabase.co"
 directory = ".open-next/assets"
 binding = "ASSETS"
 
-# SUPABASE_SERVICE_ROLE_KEY KHÔNG đặt ở đây: đây là secret cấp production,
-# nạp bằng `wrangler secret put SUPABASE_SERVICE_ROLE_KEY` (hoặc .dev.vars khi chạy local).
-# Không commit khóa này vào repo công khai.
+# KV dùng chung cho 2 việc:
+#  - đếm số lần đăng nhập sai (rate limit login) — nếu thiếu binding, bộ đếm rơi
+#    về bộ nhớ từng isolate nên kẻ dò mật khẩu có thể "né" bằng cách rơi vào
+#    isolate khác;
+#  - version key của cache tham chiếu (phối hợp giữa các colo).
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "4c6448c8a9c44b0e88d569c08ef29ddd"
+
+# Các secret cấp production KHÔNG đặt ở đây, nạp bằng `wrangler secret put <TÊN>`
+# (hoặc .dev.vars khi chạy local). Không commit khóa vào repo công khai:
+#   SUPABASE_SERVICE_ROLE_KEY  — khoá service_role của Supabase
+#   SESSION_SECRET             — ký cookie phiên (>= 32 ký tự)
+#   BANK_WEBHOOK_SECRET        — secret chia sẻ với cổng thanh toán (>= 32 ký tự)

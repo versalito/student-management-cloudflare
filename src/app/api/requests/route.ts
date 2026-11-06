@@ -1,13 +1,22 @@
 import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { ClassRequest } from '@/types/schedule';
+import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','TEACHER','STUDENT']);
+  if (auth.response) return auth.response;
+
   const { searchParams } = new URL(request.url);
   const studentId = searchParams.get('studentId');
   const teacherId = searchParams.get('teacherId');
+
+  // Học viên chỉ xem đơn của chính mình; giáo viên chỉ xem đơn thuộc lớp mình phụ trách.
+  if (auth.user.role === 'STUDENT' && !isSelfOrStaff(auth.user, studentId)) {
+    return NextResponse.json({ error: 'Không có quyền xem đơn từ của học viên khác' }, { status: 403 });
+  }
 
   let requests = await repo.getAllRequests();
   // Gộp sẵn tên học sinh vào response để portal giáo viên không phải gọi thêm /api/students?limit=all.
@@ -17,6 +26,9 @@ export async function GET(request: Request) {
     requests = requests.filter(r => r.studentId === studentId);
   }
   if (teacherId) {
+    if (auth.user.role === 'TEACHER' && teacherId !== auth.user.id) {
+      return NextResponse.json({ error: 'Giáo viên chỉ xem đơn thuộc lớp mình phụ trách' }, { status: 403 });
+    }
     const teacherClasses = await repo.getClassesByTeacherId(teacherId);
     const classIds = new Set(teacherClasses.map(c => c.id));
     // Giáo viên có thể chỉ phụ trách một ca (class_sections) của lớp đa giáo viên;
@@ -38,19 +50,42 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','TEACHER','STUDENT']);
+  if (auth.response) return auth.response;
+
   try {
     const body = await request.json();
     if (body.action === 'DECIDE') {
+      if (auth.user.role === 'STUDENT') {
+        return NextResponse.json({ success: false, error: 'Học viên không được duyệt đơn' }, { status: 403 });
+      }
+
       const existing = await repo.getRequestById(body.requestId);
       if (!existing) {
         return NextResponse.json({ success: false, error: 'Không tìm thấy yêu cầu' }, { status: 404 });
       }
 
-      const reviewerRole = body.reviewerRole || 'ADMIN';
-      const reviewerName = body.reviewerName || (reviewerRole === 'ADMIN' ? 'Quản trị viên' : `Giáo viên ${body.reviewerId || ''}`);
+      // Giáo viên chỉ duyệt đơn thuộc lớp mình phụ trách.
+      if (auth.user.role === 'TEACHER') {
+        const ownClasses = await repo.getClassesByTeacherId(auth.user.id);
+        const ownSections = await repo.getSectionsByTeacherId(auth.user.id);
+        const classIds = new Set<string>([
+          ...ownClasses.map((c) => c.id),
+          ...ownSections.map((sec) => sec.classId),
+        ]);
+        if (!classIds.has(existing.classId)) {
+          return NextResponse.json(
+            { success: false, error: 'Giáo viên chỉ duyệt đơn thuộc lớp mình phụ trách' },
+            { status: 403 }
+          );
+        }
+      }
+
+      const reviewerRole = auth.user.role;
+      const reviewerName = auth.user.name;
 
       existing.status = body.status; // 'ĐÃ_DUYỆT' | 'TỪ_CHỐI'
-      existing.reviewedBy = body.reviewerId;
+      existing.reviewedBy = auth.user.id;
       existing.reviewNote = body.reviewNote;
       const updated = await repo.updateRequest(existing);
 
@@ -70,7 +105,7 @@ export async function POST(request: Request) {
               status: 'Vắng có phép',
               note: `Nghỉ có phép theo đơn ${existing.id}`,
               method: 'SYSTEM',
-              updatedBy: body.reviewerId || reviewerRole,
+              updatedBy: auth.user.id,
               updatedAt: new Date().toISOString(),
             });
          }
@@ -113,7 +148,7 @@ export async function POST(request: Request) {
     }
 
     await repo.addAuditLog({
-      userId: body.reviewerId || reviewerRole,
+      userId: auth.user.id,
       userName: reviewerName,
       userRole: reviewerRole,
       action: 'REQUEST_DECIDE',
@@ -126,6 +161,9 @@ export async function POST(request: Request) {
     }
 
     // Tạo đơn mới
+    if (!isSelfOrStaff(auth.user, body.studentId)) {
+      return NextResponse.json({ success: false, error: 'Chỉ được tạo đơn cho chính mình' }, { status: 403 });
+    }
     const all = await repo.getAllRequests();
     const newId = `REQ${(all.length + 1).toString().padStart(3, '0')}`;
     const newRequest: ClassRequest = {
@@ -142,9 +180,9 @@ export async function POST(request: Request) {
     const saved = await repo.createRequest(newRequest);
 
     await repo.addAuditLog({
-      userId: body.studentId,
-      userName: `Sinh viên ${body.studentId}`,
-      userRole: 'STUDENT',
+      userId: auth.user.id,
+      userName: auth.user.name,
+      userRole: auth.user.role,
       action: 'CREATE',
       targetResource: 'REQUEST',
       targetId: newId,

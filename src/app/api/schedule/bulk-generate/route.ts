@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { BulkScheduleService } from '@/services/BulkScheduleService';
+import { authenticate } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+  const actorId = auth.user.id;
+  const actorName = auth.user.name;
+
   try {
     const body = await request.json();
     const {
@@ -16,7 +22,6 @@ export async function POST(request: Request) {
       endTime,
       scheduleDays,
       overwriteExisting = false,
-      actorId = 'ADMIN001',
       previewOnly = false,
     } = body;
 

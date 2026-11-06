@@ -4,6 +4,7 @@ import { repo } from '../src/repositories';
 import { PUT as updateUserRoute, POST as createUserRoute } from '../src/app/api/users/route';
 import { PUT as updateTeacherRoute } from '../src/app/api/teachers/route';
 import { PATCH as updateStudentRoute } from '../src/app/api/students/[id]/route';
+import { authed, sessionCookie } from './helpers/auth';
 
 describe('Account & Profile 2-Way Synchronization Suite', () => {
   it('1. Đổi tên trong Quản lý tài khoản -> Tự động đồng bộ sang Quản lý học sinh', async () => {
@@ -32,7 +33,7 @@ describe('Account & Profile 2-Way Synchronization Suite', () => {
     });
 
     // Cập nhật tên tài khoản qua PUT /api/users
-    const req = new Request('http://localhost/api/users', {
+    const req = authed('http://localhost/api/users', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -75,7 +76,7 @@ describe('Account & Profile 2-Way Synchronization Suite', () => {
       createdAt: new Date().toISOString()
     });
 
-    const req = new Request('http://localhost/api/users', {
+    const req = authed('http://localhost/api/users', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -117,7 +118,7 @@ describe('Account & Profile 2-Way Synchronization Suite', () => {
       createdAt: new Date().toISOString()
     });
 
-    const req = new Request('http://localhost/api/teachers', {
+    const req = authed('http://localhost/api/teachers', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -159,7 +160,7 @@ describe('Account & Profile 2-Way Synchronization Suite', () => {
       createdAt: new Date().toISOString()
     });
 
-    const req = new Request(`http://localhost/api/students/${studentId}`, {
+    const req = authed(`http://localhost/api/students/${studentId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -167,7 +168,7 @@ describe('Account & Profile 2-Way Synchronization Suite', () => {
       })
     });
 
-    const res = await updateStudentRoute(req, { params: { id: studentId } });
+    const res = await updateStudentRoute(req, { params: Promise.resolve({ id: studentId }) });
     const data = await res.json();
     assert.equal(res.status, 200);
 

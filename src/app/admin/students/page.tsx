@@ -193,7 +193,7 @@ export default function AdminStudentsPage() {
 
   useEffect(() => {
     loadStudents(page, pageSize, searchTerm, statusTab, targetUniFilter);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [page, pageSize, searchTerm, statusTab, targetUniFilter]);
 
   const handleRowStatusChange = async (student: Student, newStatus: Student['status']) => {

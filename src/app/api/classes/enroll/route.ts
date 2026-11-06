@@ -4,6 +4,7 @@ import { timeToMinutes } from '@/utils/date';
 import { TimeShift } from '@/types/schedule';
 import { ClassEntity } from '@/types/classroom';
 import { ShiftService } from '@/services/ShiftService';
+import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -101,9 +102,9 @@ async function findOverlappingEnrollment(
  * Xác định 2 khoảng thời gian có trùng nhau hay không, xử lý ca qua nửa đêm.
  */
 function hasTimeOverlap(startA: number, endA: number, startB: number, endB: number): boolean {
-  let aStart = startA;
+  const aStart = startA;
   let aEnd = endA;
-  let bStart = startB;
+  const bStart = startB;
   let bEnd = endB;
 
   if (aStart > aEnd) aEnd += 1440;
@@ -178,6 +179,9 @@ async function resolveSection(classId: string, sectionId?: string | null) {
 }
 
 export async function POST(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','TEACHER','STUDENT']);
+  if (auth.response) return auth.response;
+
   try {
     const body = await request.json();
    const {
@@ -185,12 +189,16 @@ export async function POST(request: Request) {
      sectionId,
      studentId,
      action,
-     actorId = 'ADMIN001',
-     actorRole,
      targetSectionId,
      targetShiftId,
       scheduleDays,
    } = body;
+
+    // Học viên chỉ được tự ghi danh/huỷ/đổi ca cho chính mình và không tự đặt vai trò.
+    const isStudent = auth.user.role === 'STUDENT';
+    if (isStudent && !isSelfOrStaff(auth.user, studentId)) {
+      return NextResponse.json({ error: 'Không có quyền thao tác đăng ký lớp cho học viên khác' }, { status: 403 });
+    }
 
     if (!classId || !studentId || !action) {
       return NextResponse.json({ error: 'Thiếu thông tin classId, studentId hoặc action' }, { status: 400 });
@@ -220,10 +228,10 @@ export async function POST(request: Request) {
 
    // Học sinh tự đăng ký/đổi ca thì không bị chặn vì trùng giờ; chỉ quản trị viên mới bị chặn
     // để tránh xếp lớp chồng lấn ngoài ý muốn.
-    let actorRoleResolved = typeof actorRole === 'string' ? actorRole : '';
-    const actorUser = actorId ? await repo.getUserById(String(actorId)) : null;
-    if (actorUser?.role) actorRoleResolved = actorUser.role;
-    const isStudentSelfService = actorRoleResolved === 'STUDENT';
+    // Danh tính lấy từ phiên đăng nhập, không tin body.
+    const actorId = auth.user.id;
+    const actorRoleResolved: string = auth.user.role;
+    const isStudentSelfService = auth.user.role === 'STUDENT';
 
     if (action === 'ENROLL') {
       if (!isStudentSelfService) {
@@ -246,7 +254,7 @@ export async function POST(request: Request) {
       await repo.addAuditLog({
         action: 'UPDATE',
         userId: actorId,
-        userName: actorId === 'ADMIN001' ? 'Quản trị viên' : actorId,
+        userName: auth.user.name,
         userRole: actorRoleResolved || 'ADMIN',
         targetResource: 'CLASS_ENROLLMENT',
         targetId: classId,
@@ -269,7 +277,7 @@ export async function POST(request: Request) {
       await repo.addAuditLog({
         action: 'UPDATE',
         userId: actorId,
-        userName: actorId === 'ADMIN001' ? 'Quản trị viên' : actorId,
+        userName: auth.user.name,
         userRole: actorRoleResolved || 'ADMIN',
         targetResource: 'CLASS_ENROLLMENT',
         targetId: classId,
@@ -331,8 +339,8 @@ export async function POST(request: Request) {
       await repo.addAuditLog({
         action: 'SCHEDULE_CHANGE',
         userId: actorId,
-        userName: actorId === 'ADMIN001' ? 'Quản trị viên' : student.name,
-        userRole: actorRoleResolved || 'STUDENT',
+        userName: auth.user.name,
+        userRole: auth.user.role,
         targetResource: 'CLASS_ENROLLMENT',
         targetId: classId,
         details: `Học viên ${studentId} (${student.name}) đổi ca từ ${section.id} sang ${targetSection.id} trong lớp ${classId} (${cls.name})`,

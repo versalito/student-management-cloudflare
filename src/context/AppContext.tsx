@@ -5,7 +5,6 @@ import { User } from '@/types/auth';
 
 interface AppContextType {
   currentUser: User | null;
-  setCurrentUser: (user: User | null) => void;
   availableUsers: User[];
   setAvailableUsers: (users: User[]) => void;
   isLoading: boolean;
@@ -19,6 +18,16 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+/**
+ * Trạng thái phiên của client.
+ *
+ * Nguồn duy nhất là cookie phiên HttpOnly, đọc qua `/api/auth/me` ở mỗi lần tải
+ * trang. Không còn bản sao trong `localStorage`: bản sao cũ khiến người dùng
+ * thấy sidebar/nút của vai trò trước đó (hoặc của tài khoản đã bị khoá) trong
+ * lúc chờ server, và là chỗ để sửa tay nâng quyền trên trình duyệt.
+ *
+ * Trong lúc chờ, `isReady` = false và `RoleGuard` hiển thị spinner.
+ */
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUserState] = useState<User | null>(null);
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
@@ -32,116 +41,84 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCurrentUserState(user);
   };
 
-  // Khởi tạo nhanh từ localStorage ngay khi mount ở client
+  // Hỏi server xem cookie phiên còn hiệu lực không; đây là lần duy nhất xác định user.
   useEffect(() => {
     if (typeof window !== 'undefined') {
+      // Dọn tàn dư của cơ chế cũ (client tự lưu user) nếu máy đã từng đăng nhập.
+      localStorage.removeItem('active_user');
+      localStorage.removeItem('active_user_id');
+      localStorage.removeItem('auth_token');
+    }
+
+    let cancelled = false;
+    (async () => {
       try {
-        const savedUserJson = localStorage.getItem('active_user');
-        if (savedUserJson) {
-          const parsedUser = JSON.parse(savedUserJson);
-          if (parsedUser && parsedUser.id && parsedUser.role) {
-            applyUser(parsedUser);
-          } else {
-            applyUser(null);
-          }
+        const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
+        if (cancelled) return;
+        if (res.ok) {
+          const data = await res.json();
+          applyUser(data.user || null);
         } else {
           applyUser(null);
         }
       } catch (err) {
-        console.error('Lỗi khi đọc user từ localStorage:', err);
+        console.error('Không tải được phiên đăng nhập:', err);
         applyUser(null);
       } finally {
-        setIsReady(true);
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsReady(true);
+          setIsLoading(false);
+        }
       }
-    }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const fetchUsers = async () => {
+    // GET /api/users chỉ dành cho ADMIN; vai trò khác gọi sẽ nhận 403.
+    if (currentUserRef.current && currentUserRef.current.role !== 'ADMIN') {
+      setAvailableUsers([]);
+      return;
+    }
     try {
-      const res = await fetch('/api/users');
+      const res = await fetch('/api/users', { credentials: 'same-origin' });
       if (res.ok) {
         const data = await res.json();
-        const users: User[] = data.users || [];
-        setAvailableUsers(users);
-
-        if (!currentUserRef.current && typeof window !== 'undefined') {
-          const savedUserId = localStorage.getItem('active_user_id');
-          const savedUserJson = localStorage.getItem('active_user');
-          let targetUser: User | undefined;
-
-          if (savedUserJson) {
-            try {
-              const parsed = JSON.parse(savedUserJson);
-              if (parsed?.id) {
-                targetUser = users.find(u => u.id === parsed.id);
-              }
-            } catch (e) {
-              // ignore
-            }
-          }
-
-          if (!targetUser && savedUserId) {
-            targetUser = users.find(u => u.id === savedUserId);
-          }
-
-          if (targetUser) {
-            applyUser(targetUser);
-            localStorage.setItem('active_user_id', targetUser.id);
-            localStorage.setItem('active_user', JSON.stringify(targetUser));
-          }
-          // Tuyệt đối không fallback users[0] hay tự ý gán Admin
-        }
+        setAvailableUsers(data.users || []);
       }
     } catch (err) {
       console.error('Failed to load users:', err);
-    } finally {
-      setIsLoading(false);
-      setIsReady(true);
     }
   };
 
   useEffect(() => {
-    fetchUsers();
-  }, []);
+    if (isReady) fetchUsers();
+     
+  }, [isReady, currentUser?.role]);
 
+  /** Đăng nhập do server cấp cookie; đây chỉ đồng bộ state để render. */
   const login = (user: User) => {
     applyUser(user);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('active_user_id', user.id);
-      localStorage.setItem('active_user', JSON.stringify(user));
-    }
   };
 
-  const logout = () => {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('active_user_id');
-      localStorage.removeItem('active_user');
-      localStorage.removeItem('auth_token');
-      applyUser(null);
-      window.location.href = '/login';
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/me', { method: 'DELETE', credentials: 'same-origin' });
+    } catch (err) {
+      console.error('Lỗi khi đăng xuất:', err);
     }
-  };
-
-  const handleSetCurrentUser = (user: User | null) => {
-    applyUser(user);
-    if (typeof window !== 'undefined') {
-      if (user) {
-        localStorage.setItem('active_user_id', user.id);
-        localStorage.setItem('active_user', JSON.stringify(user));
-      } else {
-        localStorage.removeItem('active_user_id');
-        localStorage.removeItem('active_user');
-        localStorage.removeItem('auth_token');
-      }
-    }
+    applyUser(null);
+    setAvailableUsers([]);
+    if (typeof window !== 'undefined') window.location.href = '/login';
   };
 
   return (
     <AppContext.Provider
       value={{
         currentUser,
-        setCurrentUser: handleSetCurrentUser,
         availableUsers,
         setAvailableUsers,
         isLoading,
@@ -159,9 +136,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useApp() {
-  const context = useContext(AppContext);
-  if (!context) {
-    throw new Error('useApp must be used within an AppProvider');
-  }
-  return context;
+  const ctx = useContext(AppContext);
+  if (!ctx) throw new Error('useApp phải dùng bên trong <AppProvider>');
+  return ctx;
 }

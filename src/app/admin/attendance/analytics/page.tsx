@@ -85,7 +85,7 @@ export default function AttendanceAnalyticsPage() {
   useEffect(() => {
     fetchAnalytics();
     setCurrentPage(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [selectedMonth, selectedClassId]);
 
   const filtered = useMemo(() => {

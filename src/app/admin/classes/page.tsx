@@ -291,7 +291,7 @@ export default function AdminClassesPage() {
           shiftId: quickScheduleClass.shiftId || 1,
           scheduleDays: quickScheduleDays,
           overwriteExisting: quickScheduleOverwrite,
-          actorId: 'ADMIN001',
+
         }),
       });
       const data = await res.json();
@@ -1720,7 +1720,7 @@ export default function AdminClassesPage() {
 
               {sections.length === 0 ? (
                 <div className="p-4 text-center text-xs text-muted-foreground border border-dashed border-line rounded-card">
-                  Lớp chưa có ca học nào. Bấm "Thêm ca" để tạo ca đầu tiên.
+                  Lớp chưa có ca học nào. Bấm &quot;Thêm ca&quot; để tạo ca đầu tiên.
                 </div>
               ) : (
                 <div className="space-y-2">

@@ -157,7 +157,7 @@ export default function StudentClassesPage() {
 
   useEffect(() => {
     loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [currentUser, isReady]);
 
   const classRange = (cls: ClassEntity): { start: number; end: number } => {
@@ -215,8 +215,8 @@ export default function StudentClassesPage() {
           sectionId,
           studentId: currentUser.id,
           action: 'ENROLL',
-          actorId: currentUser.id,
-          actorRole: 'STUDENT',
+
+
           scheduleDays: enrollDaysByClass[classId] || null,
         }),
       });
@@ -248,8 +248,8 @@ export default function StudentClassesPage() {
           targetSectionId,
           studentId: currentUser?.id || '',
           action: 'CHANGE_SHIFT',
-          actorId: currentUser?.id || '',
-          actorRole: 'STUDENT',
+
+
           scheduleDays: targetDaysByClass[classId] || null,
         }),
       });
@@ -286,8 +286,8 @@ export default function StudentClassesPage() {
           sectionId,
           studentId: currentUser.id,
           action: 'UNENROLL',
-          actorId: currentUser.id,
-          actorRole: 'STUDENT',
+
+
         }),
       });
       const data = await res.json();

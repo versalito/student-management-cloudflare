@@ -2,6 +2,7 @@ import { repo } from '@/repositories';
 import { NextResponse } from 'next/server';
 import { TuitionPayrollService } from '@/services/TuitionPayrollService';
 import { TuitionStatus } from '@/types/finance';
+import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,8 +16,16 @@ function normalizeInvoiceStatus<T extends { status: TuitionStatus }>(inv: T): T 
 }
 
 export async function GET(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','STUDENT','TEACHER']);
+  if (auth.response) return auth.response;
+
   const { searchParams } = new URL(request.url);
   const studentId = searchParams.get('studentId');
+
+  // Học viên chỉ xem học phí của chính mình.
+  if (auth.user.role === 'STUDENT' && !isSelfOrStaff(auth.user, studentId)) {
+    return NextResponse.json({ error: 'Không có quyền xem học phí của học viên khác' }, { status: 403 });
+  }
   const summary = searchParams.get('summary');
 
   const financeService = new TuitionPayrollService(repo);
@@ -35,9 +44,26 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','STUDENT']);
+  if (auth.response) return auth.response;
+
   try {
     const body = await request.json();
     const financeService = new TuitionPayrollService(repo);
+    const isStudent = auth.user.role === 'STUDENT';
+
+    // Học viên chỉ được tự mua gói và thanh toán hoá đơn của chính mình;
+    // mọi thao tác ghi sổ (tạo/sửa trạng thái/xoá) thuộc về quản trị.
+    if (isStudent) {
+      const ownScoped = body.action === 'PURCHASE_PACKAGE' || !body.action;
+      if (!ownScoped) {
+        return NextResponse.json({ error: 'Học viên không được ghi sổ học phí' }, { status: 403 });
+      }
+      const targetStudentId = body.studentId;
+      if (targetStudentId && !isSelfOrStaff(auth.user, targetStudentId)) {
+        return NextResponse.json({ error: 'Không có quyền thao tác học phí của học viên khác' }, { status: 403 });
+      }
+    }
 
     // Luồng: Cập nhật trạng thái thủ công (Status Override)
     if (body.action === "UPDATE_STATUS") {
@@ -49,9 +75,9 @@ export async function POST(request: Request) {
         transactionCode, 
         note, 
         reason,
-        actorId = 'ADMIN001', 
-        actorName = 'Quản trị viên' 
       } = body;
+      const actorId = auth.user.id;
+      const actorName = auth.user.name;
 
       if (!invoiceId) {
         return NextResponse.json({ error: 'Thiếu thông tin mã hóa đơn (invoiceId)' }, { status: 400 });
@@ -103,7 +129,7 @@ export async function POST(request: Request) {
         action: 'UPDATE_STATUS',
         userId: actorId,
         userName: actorName,
-        userRole: 'ADMIN',
+        userRole: auth.user.role,
         targetResource: 'TUITION',
         targetId: invoice.id,
         details: `Cập nhật thủ công trạng thái hóa đơn [${invoice.id}] thành "${invoice.status}"${overrideReason ? ` - Lý do: ${overrideReason}` : ''} (Đã nộp: ${invoice.paidAmount.toLocaleString('vi-VN')} đ, Phương thức: ${invoice.paymentMethod || 'N/A'})`,
@@ -141,12 +167,12 @@ export async function POST(request: Request) {
         amount: pkg.price,
         dueDate: next15Days,
         notes: `Học sinh tự chọn mua ${pkg.name}`,
-      });
+      }, { id: auth.user.id, name: auth.user.name, role: auth.user.role });
 
       await repo.addAuditLog({
-        userId: studentId,
-        userName: `Sinh viên ${studentId}`,
-        userRole: 'STUDENT',
+        userId: auth.user.id,
+        userName: auth.user.name,
+        userRole: auth.user.role,
         action: 'PACKAGE_PURCHASE',
         targetResource: 'TUITION_INVOICE',
         targetId: newInvoice.id,
@@ -197,7 +223,7 @@ export async function POST(request: Request) {
        notes,
         packageName: packageName || undefined,
         packagePrice: packagePrice !== undefined ? Number(packagePrice) : undefined,
-     });
+     }, { id: auth.user.id, name: auth.user.name, role: auth.user.role });
 
       return NextResponse.json({ 
         success: true, 
@@ -213,7 +239,8 @@ export async function POST(request: Request) {
       invoiceId, 
       paymentAmount, 
       paymentMethod || "Chuyển khoản QR", 
-      transactionCode
+      transactionCode,
+      { id: auth.user.id, name: auth.user.name, role: auth.user.role }
     );
 
     return NextResponse.json({ success: true, invoice: updated });
@@ -223,11 +250,14 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const invoiceId = searchParams.get('invoiceId') || searchParams.get('id');
-    const actorId = searchParams.get('actorId') || 'STUDENT001';
-    const actorName = searchParams.get('actorName') || 'Học viên';
+    const actorId = auth.user.id;
+    const actorName = auth.user.name;
 
     if (!invoiceId) {
       return NextResponse.json({ success: false, error: 'Thiếu thông tin mã hóa đơn (invoiceId)' }, { status: 400 });
@@ -257,7 +287,7 @@ export async function DELETE(request: Request) {
       action: 'CANCEL_INVOICE',
       userId: actorId,
       userName: actorName,
-      userRole: actorId.startsWith('TCH') ? 'TEACHER' : actorId.startsWith('ADMIN') ? 'ADMIN' : 'STUDENT',
+      userRole: auth.user.role,
       targetResource: 'TUITION_INVOICE',
       targetId: invoice.id,
       details: 'Hủy hóa đơn [' + invoice.id + '] (' + invoice.title + ') trước khi thanh toán. Gói: ' + (invoice.packageName || 'N/A') + ', Giá: ' + invoice.amount.toLocaleString('vi-VN') + ' đ',
@@ -274,6 +304,9 @@ export async function DELETE(request: Request) {
 }
 
 export async function PUT(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+
   try {
     const body = await request.json();
     const { 
@@ -283,10 +316,10 @@ export async function PUT(request: Request) {
       paidDate, 
       transactionCode, 
       note, 
-      reason, 
-      actorId = 'ADMIN001', 
-      actorName = 'Quản trị viên' 
+      reason,
     } = body;
+    const actorId = auth.user.id;
+    const actorName = auth.user.name;
 
     if (!invoiceId) {
       return NextResponse.json({ error: 'Thiếu thông tin mã hóa đơn (invoiceId)' }, { status: 400 });
@@ -339,7 +372,7 @@ export async function PUT(request: Request) {
       action: 'UPDATE_STATUS',
       userId: actorId,
       userName: actorName,
-      userRole: 'ADMIN',
+      userRole: auth.user.role,
       targetResource: 'TUITION',
       targetId: invoice.id,
       details: `Cập nhật thủ công trạng thái hóa đơn [${invoice.id}] thành "${invoice.status}"${overrideReason ? ` - Lý do: ${overrideReason}` : ''} (Đã nộp: ${invoice.paidAmount.toLocaleString('vi-VN')} đ, Phương thức: ${invoice.paymentMethod || 'N/A'})`,

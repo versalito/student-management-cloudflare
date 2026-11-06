@@ -4,6 +4,7 @@ export type AuditAction =
   | 'UPDATE_STATUS' 
   | 'DELETE' 
   | 'LOGIN' 
+  | 'LOGOUT' 
   | 'ATTENDANCE_CHECK' 
   | 'SCHEDULE_CHANGE' 
   | 'PAYMENT_PROCESS' 

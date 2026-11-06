@@ -1,12 +1,16 @@
 import { NextResponse } from 'next/server';
 import { AdminBankConfig, DEFAULT_BANK_CONFIG } from '@/types/bank';
 import { repo } from '@/repositories';
+import { authenticate } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
 const BANK_SETTING_KEY = 'admin_bank_config';
 
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = await authenticate(request, ['ADMIN', 'TEACHER', 'STUDENT']);
+  if (auth.response) return auth.response;
+
   let bankConfig: AdminBankConfig;
   try {
     const stored = await repo.getAppSetting<AdminBankConfig>(BANK_SETTING_KEY);
@@ -23,6 +27,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+
   try {
     const body = await request.json();
     const { bankId, bankName, accountNumber, accountName } = body;

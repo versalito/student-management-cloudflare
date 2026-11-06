@@ -7,6 +7,7 @@ import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Header } from '@/components/common/Header';
 import { RoleGuard } from '@/components/common/RoleGuard';
+import { useApp } from '@/context/AppContext';
 import { QuickStudentModal } from '@/components/common/QuickStudentModal';
 import { AttendanceRecord, AttendanceStatus } from '@/types/attendance';
 import { ScheduleSlot } from '@/types/schedule';
@@ -52,6 +53,9 @@ interface ExtendedAttendanceRecord extends AttendanceRecord {
 
 function AdminAttendanceContent() {
   const toast = useToast();
+  // Chỉ để hiển thị; server luôn ghi đè `updatedBy` bằng người trong phiên.
+  const { currentUser } = useApp();
+  const actorId = currentUser?.id || '';
   const searchParams = useSearchParams();
 
   // Nhận ngữ cảnh khi được điều hướng từ Dashboard/Calendar (?classId=...&date=...)
@@ -195,7 +199,7 @@ function AdminAttendanceContent() {
             date: slot.date,
             status: 'Có mặt',
             checkinTime: slot.startTime ? slot.startTime + ':00' : '08:00:00',
-            updatedBy: 'ADMIN001',
+            updatedBy: actorId,
             updatedAt: new Date().toISOString(),
             method: 'MANUAL',
             studentName: student?.name || 'Học viên ' + stId,
@@ -327,7 +331,7 @@ function AdminAttendanceContent() {
         originalSlotId: r.originalSlotId || undefined,
         makeupReason: r.makeupReason || undefined,
         method: r.method || 'MANUAL',
-        updatedBy: 'ADMIN001',
+        updatedBy: actorId,
         updatedAt: new Date().toISOString(),
       }));
 
@@ -337,8 +341,7 @@ function AdminAttendanceContent() {
         body: JSON.stringify({
           records: cleanedRecords,
           slotId: selectedSlotId,
-          updatedBy: 'ADMIN001',
-          updaterName: 'Quản trị viên',
+  
           userRole: 'ADMIN',
         }),
       });
@@ -456,7 +459,7 @@ function AdminAttendanceContent() {
         originalSlotId: makeupOriginalSlotId || 'SCH_MANUAL_MAKEUP',
         makeupReason: makeupReason || 'Học bù ca vắng ngoài ca',
         checkinTime: nowTimeStr,
-        updatedBy: 'ADMIN001',
+        updatedBy: actorId,
         updatedAt: new Date().toISOString(),
         method: 'MANUAL',
         studentName: student?.name || 'Học viên ' + makeupStudentId,

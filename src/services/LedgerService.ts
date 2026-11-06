@@ -1,6 +1,14 @@
 import { repo } from '../repositories';
 import { ManualExpense, LedgerMonthlySummary, TeacherTimesheetSummary } from '../types/ledger';
 
+export interface LedgerActor {
+  id: string;
+  name: string;
+  role: string;
+}
+
+const SYSTEM_ACTOR: LedgerActor = { id: 'SYSTEM', name: 'Hệ thống', role: 'SYSTEM' };
+
 export class LedgerService {
   private static expenses: Map<string, ManualExpense> = new Map();
 
@@ -11,7 +19,7 @@ export class LedgerService {
     expenseDate?: string;
     note?: string;
     createdBy?: string;
-  }): Promise<ManualExpense> {
+  }, actor: LedgerActor = SYSTEM_ACTOR): Promise<ManualExpense> {
     const id = 'EXP_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
     const exp: ManualExpense = {
       id,
@@ -20,7 +28,7 @@ export class LedgerService {
       category: params.category || 'Vận hành',
       expenseDate: params.expenseDate || new Date().toISOString().split('T')[0],
       note: params.note,
-      createdBy: params.createdBy || 'ADMIN001',
+      createdBy: params.createdBy || actor.id,
       createdAt: new Date().toISOString()
     };
     this.expenses.set(id, exp);
@@ -28,8 +36,8 @@ export class LedgerService {
     await repo.addAuditLog({
       action: 'CREATE',
       userId: exp.createdBy,
-      userName: 'Quản trị viên',
-      userRole: 'ADMIN',
+      userName: actor.name,
+      userRole: actor.role,
       targetResource: 'FINANCE',
       targetId: id,
       details: 'Tạo khoản chi: ' + exp.title + ' - Số tiền: ' + exp.amount.toLocaleString('vi-VN') + ' đ',
@@ -38,16 +46,16 @@ export class LedgerService {
     return exp;
   }
 
-  public static async deleteExpense(id: string): Promise<boolean> {
+  public static async deleteExpense(id: string, actor: LedgerActor = SYSTEM_ACTOR): Promise<boolean> {
     const exp = this.expenses.get(id);
     if (!exp) return false;
     this.expenses.delete(id);
 
     await repo.addAuditLog({
       action: 'DELETE',
-      userId: 'ADMIN001',
-      userName: 'Quản trị viên',
-      userRole: 'ADMIN',
+      userId: actor.id,
+      userName: actor.name,
+      userRole: actor.role,
       targetResource: 'FINANCE',
       targetId: id,
       details: 'Xóa khoản chi: ' + exp.title + ' - ' + exp.amount + ' đ',

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { StudentSlotSwap } from '@/types/schedule';
+import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +10,14 @@ export const dynamic = 'force-dynamic';
  * Chỉ ảnh hưởng tới buổi học cụ thể (fromSlotId -> toSlotId), không đổi ca dài hạn.
  */
 export async function GET(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','STUDENT']);
+  if (auth.response) return auth.response;
+
+  const requestedStudentId = new URL(request.url).searchParams.get('studentId');
+  if (!isSelfOrStaff(auth.user, requestedStudentId)) {
+    return NextResponse.json({ success: false, error: 'Không có quyền xem đổi ca của học viên khác' }, { status: 403 });
+  }
+
   const { searchParams } = new URL(request.url);
   const studentId = searchParams.get('studentId');
   const date = searchParams.get('date');
@@ -25,9 +34,19 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','STUDENT']);
+  if (auth.response) return auth.response;
+
   try {
     const body = await request.json();
     const { studentId, fromSlotId, toSlotId, date } = body;
+
+    if (!isSelfOrStaff(auth.user, studentId)) {
+      return NextResponse.json(
+        { success: false, error: 'Không có quyền đổi ca cho học viên khác' },
+        { status: 403 }
+      );
+    }
 
     if (!studentId || !fromSlotId || !toSlotId || !date) {
       return NextResponse.json(
@@ -103,9 +122,9 @@ export async function POST(request: Request) {
     const saved = await repo.createSlotSwap(swap);
 
     await repo.addAuditLog({
-      userId: studentId,
-      userName: `Học viên ${studentId}`,
-      userRole: 'STUDENT',
+      userId: auth.user.id,
+      userName: auth.user.name,
+      userRole: auth.user.role,
       action: 'SCHEDULE_CHANGE',
       targetResource: 'SCHEDULE',
       targetId: saved.id,

@@ -1,14 +1,19 @@
 import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
+import { cachedJson } from '@/lib/cache/referenceCache';
 import { BulkScheduleService } from '@/services/BulkScheduleService';
 import { ShiftService } from '@/services/ShiftService';
 import { ClassSection } from '@/types/classroom';
 import { ScheduleSlot } from '@/types/schedule';
 import { getTodayDateStr, getTodayDateStrByDate, dateToDayOfWeek } from '@/utils/date';
+import { authenticate } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','TEACHER','STUDENT']);
+  if (auth.response) return auth.response;
+
   const { searchParams } = new URL(request.url);
   const teacherId = searchParams.get('teacherId');
   const studentId = searchParams.get('studentId');
@@ -18,6 +23,11 @@ export async function GET(request: Request) {
     if (id) {
       const cls = await repo.getClassById(id);
       return NextResponse.json({ class: cls });
+    }
+
+    // Đường đọc phổ biến nhất (mọi trang admin): danh sách lớp đầy đủ, ít đổi.
+    if (!studentId && !teacherId) {
+      return await cachedJson('classes', 'all', () => repo.getAllClasses(), (classes) => ({ classes }));
     }
 
     // Lọc ở tầng dữ liệu: chỉ đọc đúng lớp cần dùng thay vì tải toàn bộ rồi lọc JS.
@@ -46,6 +56,9 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+
   try {
     const body = await request.json();
     const {
@@ -60,8 +73,8 @@ export async function PUT(request: Request) {
       isRecurring,
       tuitionFee,
       meetingLink,
-      actorId = 'ADMIN001'
     } = body;
+    const actorId = auth.user.id;
 
     if (!classId) {
       return NextResponse.json({ error: 'Thiếu thông tin classId' }, { status: 400 });
@@ -72,7 +85,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Không tìm thấy lớp học' }, { status: 404 });
     }
 
-    let oldTeacherId = cls.teacherId;
+    const oldTeacherId = cls.teacherId;
     let newTeacher = null;
 
     if (name !== undefined) cls.name = name.trim();
@@ -277,7 +290,7 @@ export async function PUT(request: Request) {
     await repo.addAuditLog({
       action: 'UPDATE',
       userId: actorId,
-      userName: actorId === 'ADMIN001' ? 'Quản trị viên' : actorId,
+      userName: auth.user.name,
       userRole: 'ADMIN',
       targetResource: 'CLASS_ASSIGNMENT',
       targetId: classId,
@@ -296,6 +309,11 @@ export async function PUT(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+  const actorId = auth.user.id;
+  const actorName = auth.user.name;
+
   try {
     const body = await request.json();
     const {
@@ -311,7 +329,6 @@ export async function POST(request: Request) {
       meetingLink = '',
       autoGenerateSchedule = true,
       generateMonths = 3,
-      actorId = 'ADMIN001',
       sections = [],
     } = body;
 
@@ -424,7 +441,7 @@ export async function POST(request: Request) {
     await repo.addAuditLog({
       action: 'CREATE',
       userId: actorId,
-      userName: actorId === 'ADMIN001' ? 'Quản trị viên' : actorId,
+      userName: auth.user.name,
       userRole: 'ADMIN',
       targetResource: 'CLASS',
       targetId: newId,
@@ -473,10 +490,13 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
-    const actorId = searchParams.get("actorId") || "ADMIN001";
+    const actorId = auth.user.id;
 
     if (!id) {
       return NextResponse.json({ error: "Thiếu mã lớp học cần xóa" }, { status: 400 });
@@ -531,7 +551,7 @@ export async function DELETE(request: Request) {
     await repo.addAuditLog({
       action: "DELETE",
       userId: actorId,
-      userName: actorId === "ADMIN001" ? "Quản trị viên" : actorId,
+      userName: auth.user.name,
       userRole: "ADMIN",
       targetResource: "CLASS",
       targetId: id,

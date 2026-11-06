@@ -172,7 +172,7 @@ export default function TeacherSchedulePage() {
             body: JSON.stringify({
               classId: cls.id,
               teacherId: currentUser.id,
-              actorId: currentUser.id,
+
             }),
           })
         : await fetch('/api/classes/sections', {
@@ -182,7 +182,7 @@ export default function TeacherSchedulePage() {
               sectionId: section.id,
               teacherId: currentUser.id,
               syncFutureSlots: true,
-              actorId: currentUser.id,
+
             }),
           });
       const data = await res.json();

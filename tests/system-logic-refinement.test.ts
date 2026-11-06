@@ -4,6 +4,7 @@ import { repo } from '../src/repositories';
 import { ConflictEngine } from '../src/services/ConflictEngine';
 import { getTodayDateStr, getNowTimeStr } from '../src/utils/date';
 import { GET as getAttendanceRoute } from '../src/app/api/attendance/route';
+import { authed, sessionCookie } from './helpers/auth';
 
 describe('System Logic Refinement Suite: Time Overlap, Asia/Saigon Timezone & Attendance Roster', () => {
   it('1. ConflictEngine: Phát hiện trùng lớp khi cùng một lớp bị xếp 2 ca giao nhau về giờ thực tế', async () => {
@@ -79,7 +80,7 @@ describe('System Logic Refinement Suite: Time Overlap, Asia/Saigon Timezone & At
     });
 
     // Gọi GET /api/attendance?slotId=...
-    const req = new Request(`http://localhost/api/attendance?slotId=${slotId}`);
+    const req = authed(`http://localhost/api/attendance?slotId=${slotId}`);
     const res = await getAttendanceRoute(req);
     const data = await res.json();
 

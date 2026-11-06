@@ -1,0 +1,16 @@
+# Header cho static asset của Worker (Workers Static Assets đọc file này).
+# Lưu ý: file này KHÔNG áp cho response do Worker/Next render — HTML và API tự
+# set Cache-Control ở next.config.mjs.
+
+# Next băm tên file trong /_next/static -> nội dung bất biến, cache 1 năm.
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+  X-Content-Type-Options: nosniff
+
+/_next/image*
+  Cache-Control: public, max-age=3600, must-revalidate
+  X-Content-Type-Options: nosniff
+
+# Tài nguyên tĩnh không băm tên: cho cache ngắn, vẫn revalidate.
+/favicon.ico
+  Cache-Control: public, max-age=86400

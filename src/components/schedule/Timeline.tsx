@@ -37,7 +37,7 @@ export function clampSlotToTimeline(slot: ScheduleSlot): {
   isOvernight: boolean;
 } {
   const rawStart = timeToMinutes(slot.startTime || '00:00');
-  let rawEnd = timeToMinutes(slot.endTime || '23:59');
+  const rawEnd = timeToMinutes(slot.endTime || '23:59');
 
   const isOvernight = rawEnd < rawStart || rawEnd > TIMELINE_END_MINUTES;
 

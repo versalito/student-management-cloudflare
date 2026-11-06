@@ -2,12 +2,18 @@ import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { ShiftService } from '@/services/ShiftService';
 import { ConflictEngine } from '@/services/ConflictEngine';
+import { authenticate } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
 export type DailyActionType = 'RESCHEDULE_DAY' | 'SHIFT_MIGRATION' | 'CANCEL_DAY';
 
 export async function POST(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+  const actorId = auth.user.id;
+  const actorName = auth.user.name;
+
   try {
     const body = await request.json();
     const {
@@ -17,7 +23,6 @@ export async function POST(request: Request) {
       fromShiftId,
       toShiftId,
       cancelStatus = 'Đã hủy', // 'Đã hủy' | 'Đổi lịch'
-      actorId = 'ADMIN001',
     } = body;
 
     if (!currentDate || !action) {
@@ -77,7 +82,7 @@ export async function POST(request: Request) {
         await repo.addAuditLog({
           action: 'SCHEDULE_CHANGE',
           userId: actorId,
-          userName: actorId === 'ADMIN001' ? 'Quản trị viên' : actorId,
+          userName: auth.user.name,
           userRole: 'ADMIN',
           targetResource: 'SCHEDULE',
           targetId: currentDate,
@@ -130,7 +135,7 @@ export async function POST(request: Request) {
         await repo.addAuditLog({
           action: 'SCHEDULE_CHANGE',
           userId: actorId,
-          userName: actorId === 'ADMIN001' ? 'Quản trị viên' : actorId,
+          userName: auth.user.name,
           userRole: 'ADMIN',
           targetResource: 'SCHEDULE',
           targetId: currentDate,
@@ -155,7 +160,7 @@ export async function POST(request: Request) {
         await repo.addAuditLog({
           action: 'SCHEDULE_CHANGE',
           userId: actorId,
-          userName: actorId === 'ADMIN001' ? 'Quản trị viên' : actorId,
+          userName: auth.user.name,
           userRole: 'ADMIN',
           targetResource: 'SCHEDULE',
           targetId: currentDate,

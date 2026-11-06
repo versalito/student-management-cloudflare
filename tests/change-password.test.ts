@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { repo } from '../src/repositories';
 import { AuthService } from '../src/services/AuthService';
 import { PUT as changePassword } from '../src/app/api/users/password/route';
+import { authed, sessionCookie } from './helpers/auth';
 
 function req(body: Record<string, unknown>) {
-  return new Request('http://localhost/api/users/password', {
+  return authed('http://localhost/api/users/password', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

@@ -6,7 +6,7 @@ import { RoleGuard } from '@/components/common/RoleGuard';
 import { ScheduleSlot, TimeShift, TIME_SHIFTS } from '@/types/schedule';
 import { Teacher } from '@/types/teacher';
 import { ClassEntity } from '@/types/classroom';
-import { Student } from '@/types/student';
+import { StudentLite } from '@/types/student';
 import { getTodayDateStr, formatTimeHM } from '@/utils/date';
 import {
   computeTimelineBounds,
@@ -66,7 +66,7 @@ export default function AdminCalendarPage() {
   const [slots, setSlots] = useState<ScheduleSlot[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [classes, setClasses] = useState<ClassEntity[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
+  const [students, setStudents] = useState<StudentLite[]>([]);
   const [loading, setLoading] = useState(false);
   const [shifts, setShifts] = useState<TimeShift[]>(TIME_SHIFTS);
 
@@ -120,22 +120,17 @@ export default function AdminCalendarPage() {
   const loadData = async (date: string) => {
     setLoading(true);
     try {
-      const [slotRes, tcRes, clsRes, stRes] = await Promise.all([
-        fetch(`/api/schedule?date=${date}`),
-        fetch('/api/teachers'),
-        fetch('/api/classes'),
-        fetch('/api/students?limit=400'),
-      ]);
-      const slotData = await slotRes.json();
-      const tcData = await tcRes.json();
-      const clsData = await clsRes.json();
-      const stData = await stRes.json();
+      // Một request bootstrap thay cho 4 request song song: server đọc `classes`
+      // một lần cho cả danh sách lớp lẫn lịch học, và chỉ nạp học sinh đã ghi danh.
+      const res = await fetch(`/api/bootstrap?scope=slots,classes,teachers,shifts,students&date=${date}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
 
-      setSlots(slotData.slots || []);
-      if (slotData.shifts) setShifts(slotData.shifts);
-      setTeachers(tcData.teachers || []);
-      setClasses(clsData.classes || []);
-      setStudents(stData.students || []);
+      setSlots(data.slots || []);
+      if (data.shifts) setShifts(data.shifts);
+      setTeachers(data.teachers || []);
+      setClasses(data.classes || []);
+      setStudents(data.students || []);
     } catch (e) {
       console.error('Lỗi khi tải lịch học:', e);
       toast.error('Lỗi tải dữ liệu lịch học');
@@ -160,8 +155,8 @@ export default function AdminCalendarPage() {
     return map;
   }, [classes]);
 
-  const studentMap: Record<string, Student> = useMemo(() => {
-    const map: Record<string, Student> = {};
+  const studentMap: Record<string, StudentLite> = useMemo(() => {
+    const map: Record<string, StudentLite> = {};
     students.forEach(s => { map[s.id] = s; });
     return map;
   }, [students]);
@@ -324,7 +319,7 @@ export default function AdminCalendarPage() {
           fromShiftId: dailyAction === 'SHIFT_MIGRATION' ? Number(dailyFromShiftId) : undefined,
           toShiftId: dailyAction === 'SHIFT_MIGRATION' ? Number(dailyToShiftId) : undefined,
           cancelStatus: dailyAction === 'CANCEL_DAY' ? dailyCancelStatus : undefined,
-          actorId: 'ADMIN001',
+
         }),
       });
       const data = await res.json();
@@ -360,7 +355,7 @@ export default function AdminCalendarPage() {
           targetShiftId: futureShiftId !== '' ? Number(futureShiftId) : undefined,
           targetTeacherId: futureTeacherId || undefined,
           targetMeetingLink: futureMeetingLink || undefined,
-          actorId: 'ADMIN001',
+
         }),
       });
       const data = await res.json();
@@ -405,7 +400,7 @@ export default function AdminCalendarPage() {
           shiftId: genUseClassSchedule ? undefined : Number(genShiftId),
           scheduleDays: genUseClassSchedule ? undefined : genScheduleDays,
           overwriteExisting: genOverwrite,
-          actorId: 'ADMIN001',
+
           previewOnly: true,
         }),
       });
@@ -445,7 +440,7 @@ export default function AdminCalendarPage() {
           shiftId: genUseClassSchedule ? undefined : Number(genShiftId),
           scheduleDays: genUseClassSchedule ? undefined : genScheduleDays,
           overwriteExisting: genOverwrite,
-          actorId: 'ADMIN001',
+
         }),
       });
       const data = await res.json();

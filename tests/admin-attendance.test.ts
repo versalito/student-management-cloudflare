@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { repo } from '../src/repositories';
 import { AttendanceRecord, AttendanceStatus } from '../src/types/attendance';
 import { GET, POST } from '../src/app/api/attendance/route';
+import { authed, sessionCookie } from './helpers/auth';
 
 test('Admin Attendance & Makeup Attendance Suite: Kiểm tra toàn bộ Giai đoạn 1', async (t) => {
   await t.test('1. Kiểm tra interface AttendanceRecord và các trường mới (checkinTime, originalSlotId, makeupReason, method)', async () => {
@@ -94,7 +95,7 @@ test('Admin Attendance & Makeup Attendance Suite: Kiểm tra toàn bộ Giai đo
     await repo.saveAttendanceBatch(testRecords);
 
     // Test GET by slotId
-    const reqSlot = new Request(`http://localhost:3000/api/attendance?slotId=${slotId}`);
+    const reqSlot = authed(`http://localhost:3000/api/attendance?slotId=${slotId}`);
     const resSlot = await GET(reqSlot);
     const dataSlot = await resSlot.json();
     assert.ok(Array.isArray(dataSlot.records));
@@ -102,7 +103,7 @@ test('Admin Attendance & Makeup Attendance Suite: Kiểm tra toàn bộ Giai đo
     assert.ok(dataSlot.records.some((r: any) => r.id === 'ATT_API_002'));
 
     // Test GET by classId and date
-    const reqClassDate = new Request(`http://localhost:3000/api/attendance?classId=${classId}&date=${date}`);
+    const reqClassDate = authed(`http://localhost:3000/api/attendance?classId=${classId}&date=${date}`);
     const resClassDate = await GET(reqClassDate);
     const dataClassDate = await resClassDate.json();
     assert.ok(dataClassDate.records.length > 0);
@@ -139,7 +140,7 @@ test('Admin Attendance & Makeup Attendance Suite: Kiểm tra toàn bộ Giai đo
       },
     ];
 
-    const reqPost = new Request('http://localhost:3000/api/attendance', {
+    const reqPost = authed('http://localhost:3000/api/attendance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

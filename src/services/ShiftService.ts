@@ -2,6 +2,14 @@ import { TimeShift, TIME_SHIFTS } from '../types/schedule';
 import { repo } from '../repositories';
 import { getTodayDateStr } from '../utils/date';
 
+export interface ShiftActor {
+  id: string;
+  name: string;
+  role: string;
+}
+
+const SYSTEM_ACTOR: ShiftActor = { id: 'SYSTEM', name: 'Hệ thống', role: 'SYSTEM' };
+
 export class ShiftService {
   public static async getAllShifts(): Promise<TimeShift[]> {
     return repo.getAllTimeShifts();
@@ -14,7 +22,8 @@ export class ShiftService {
   public static async updateShift(
     id: number,
     data: { shiftId?: number; startTime?: string; endTime?: string; name?: string; isActive?: boolean },
-    syncFutureSlots: boolean = false
+    syncFutureSlots: boolean = false,
+    actor: ShiftActor = SYSTEM_ACTOR
   ): Promise<TimeShift | null> {
     const targetId = data.shiftId !== undefined ? Number(data.shiftId) : id;
     const old = await repo.getTimeShiftById(targetId);
@@ -51,9 +60,9 @@ export class ShiftService {
 
     await repo.addAuditLog({
       action: 'UPDATE',
-      userId: 'ADMIN001',
-      userName: 'Quản trị viên',
-      userRole: 'ADMIN',
+      userId: actor.id,
+      userName: actor.name,
+      userRole: actor.role,
       targetResource: 'SCHEDULE',
       targetId: 'SHIFT_' + updated.id,
       details: 'Cập nhật khung giờ ' + updated.name + ': ' + updated.startTime + ' - ' + updated.endTime + (syncFutureSlots ? ` (Đồng bộ ${syncedSlotsCount} ca học tương lai)` : ''),
@@ -67,7 +76,8 @@ export class ShiftService {
    */
   public static async bulkUpdateShifts(
     shifts: TimeShift[],
-    syncFutureSlots: boolean = true
+    syncFutureSlots: boolean = true,
+    actor: ShiftActor = SYSTEM_ACTOR
   ): Promise<{ shifts: TimeShift[]; syncedSlotsCount: number }> {
     const current = await repo.getAllTimeShifts();
     const currentMap = new Map(current.map(s => [s.id, s]));
@@ -116,9 +126,9 @@ export class ShiftService {
 
     await repo.addAuditLog({
       action: 'UPDATE',
-      userId: 'ADMIN001',
-      userName: 'Quản trị viên',
-      userRole: 'ADMIN',
+      userId: actor.id,
+      userName: actor.name,
+      userRole: actor.role,
       targetResource: 'SCHEDULE',
       targetId: 'BULK_SHIFTS',
       details: `Cập nhật cấu hình ca học hàng loạt (${updatedShifts.length} ca)${syncFutureSlots ? `. Đã đồng bộ ${syncedSlotsCount} ca học tương lai từ ngày ${getTodayDateStr()}` : ''}`,
@@ -136,7 +146,7 @@ export class ShiftService {
     startTime: string;
     endTime: string;
     isActive?: boolean;
-  }): Promise<TimeShift> {
+  }, actor: ShiftActor = SYSTEM_ACTOR): Promise<TimeShift> {
     const all = await repo.getAllTimeShifts();
     let nextId: number;
     if (data.shiftNumber !== undefined && Number(data.shiftNumber) > 0) {
@@ -158,9 +168,9 @@ export class ShiftService {
 
     await repo.addAuditLog({
       action: 'CREATE',
-      userId: 'ADMIN001',
-      userName: 'Quản trị viên',
-      userRole: 'ADMIN',
+      userId: actor.id,
+      userName: actor.name,
+      userRole: actor.role,
       targetResource: 'SCHEDULE',
       targetId: 'SHIFT_' + nextId,
       details: 'Tạo ca học mới ' + newShift.name + ' (' + newShift.startTime + ' - ' + newShift.endTime + ')',
@@ -169,7 +179,7 @@ export class ShiftService {
     return newShift;
   }
 
-  public static async deleteShift(id: number): Promise<boolean> {
+  public static async deleteShift(id: number, actor: ShiftActor = SYSTEM_ACTOR): Promise<boolean> {
     const old = await repo.getTimeShiftById(id);
     if (!old) return false;
 
@@ -177,9 +187,9 @@ export class ShiftService {
     if (ok) {
       await repo.addAuditLog({
         action: 'DELETE',
-        userId: 'ADMIN001',
-        userName: 'Quản trị viên',
-        userRole: 'ADMIN',
+        userId: actor.id,
+        userName: actor.name,
+        userRole: actor.role,
         targetResource: 'SCHEDULE',
         targetId: 'SHIFT_' + id,
         details: 'Xóa ca học ' + old.name,
@@ -191,7 +201,10 @@ export class ShiftService {
   /**
    * Áp dụng Presets cấu hình nhanh số ca
    */
-  public static async applyPreset(presetType: '3_SHIFTS' | '2_SHIFTS' | '5_SHIFTS'): Promise<TimeShift[]> {
+  public static async applyPreset(
+    presetType: '3_SHIFTS' | '2_SHIFTS' | '5_SHIFTS',
+    actor: ShiftActor = SYSTEM_ACTOR
+  ): Promise<TimeShift[]> {
     const current = await repo.getAllTimeShifts();
     for (const s of current) {
       await repo.deleteTimeShift(s.id);
@@ -219,9 +232,9 @@ export class ShiftService {
 
     await repo.addAuditLog({
       action: 'UPDATE',
-      userId: 'ADMIN001',
-      userName: 'Quản trị viên',
-      userRole: 'ADMIN',
+      userId: actor.id,
+      userName: actor.name,
+      userRole: actor.role,
       targetResource: 'SCHEDULE',
       targetId: 'PRESET_' + presetType,
       details: 'Áp dụng mẫu cấu hình khung giờ: ' + presetType + ' (' + presetShifts.length + ' ca/ngày)',

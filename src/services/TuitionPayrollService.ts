@@ -8,6 +8,14 @@ function currentMonth(): string {
     .slice(0, 7);
 }
 
+export interface FinanceActor {
+  id: string;
+  name: string;
+  role: string;
+}
+
+const SYSTEM_ACTOR: FinanceActor = { id: 'SYSTEM', name: 'Hệ thống', role: 'SYSTEM' };
+
 export class TuitionPayrollService {
   constructor(private repo: IRepository) {}
 
@@ -29,7 +37,7 @@ export class TuitionPayrollService {
     notes?: string;
     packageName?: string;
     packagePrice?: number;
-  }): Promise<TuitionInvoice> {
+  }, actor: FinanceActor = SYSTEM_ACTOR): Promise<TuitionInvoice> {
     if (!data.studentId || !data.title || data.amount <= 0 || !data.dueDate) {
       throw new Error("Thiếu thông tin bắt buộc hoặc số tiền không hợp lệ");
     }
@@ -72,9 +80,9 @@ export class TuitionPayrollService {
     await this.repo.createTuitionInvoice(newInvoice);
 
     await this.repo.addAuditLog({
-      userId: "ADMIN001",
-      userName: "Quản Trị Viên Hệ Thống",
-      userRole: "ADMIN",
+      userId: actor.id,
+      userName: actor.name,
+      userRole: actor.role,
       action: "CREATE",
       targetResource: "TUITION_INVOICE",
       targetId: newInvoice.id,
@@ -108,7 +116,8 @@ export class TuitionPayrollService {
     invoiceId: string, 
     paymentAmount: number, 
     method: 'Chuyển khoản QR' | 'Tiền mặt' | 'Thẻ ngân hàng' = 'Chuyển khoản QR',
-    transactionCode?: string
+    transactionCode?: string,
+    actor?: FinanceActor
   ): Promise<TuitionInvoice> {
     const invoice = await this.repo.getTuitionInvoiceById(invoiceId);
     if (!invoice) {
@@ -133,9 +142,9 @@ export class TuitionPayrollService {
 
     // Ghi audit log
     await this.repo.addAuditLog({
-      userId: invoice.studentId,
-      userName: `Sinh viên ${invoice.studentId}`,
-      userRole: 'STUDENT',
+      userId: actor?.id ?? invoice.studentId,
+      userName: actor?.name ?? `Sinh viên ${invoice.studentId}`,
+      userRole: actor?.role ?? 'STUDENT',
       action: 'PAYMENT_PROCESS',
       targetResource: 'TUITION',
       targetId: invoice.id,
@@ -203,7 +212,11 @@ export class TuitionPayrollService {
   /**
    * Chốt hoặc thanh toán bảng lương cho giáo viên
    */
-  public async finalizePayroll(payrollId: string, action: 'CHỐT' | 'THANH_TOÁN'): Promise<PayrollRecord> {
+  public async finalizePayroll(
+    payrollId: string,
+    action: 'CHỐT' | 'THANH_TOÁN',
+    actor: FinanceActor = SYSTEM_ACTOR
+  ): Promise<PayrollRecord> {
     const all = await this.repo.getAllPayrollRecords();
     const payroll = all.find(p => p.id === payrollId);
     if (!payroll) {
@@ -217,9 +230,9 @@ export class TuitionPayrollService {
     await this.repo.updatePayrollRecord(payroll);
 
     await this.repo.addAuditLog({
-      userId: 'ADMIN001',
-      userName: 'Quản Trị Viên Hệ Thống',
-      userRole: 'ADMIN',
+      userId: actor.id,
+      userName: actor.name,
+      userRole: actor.role,
       action: 'UPDATE',
       targetResource: 'PAYROLL',
       targetId: payroll.id,

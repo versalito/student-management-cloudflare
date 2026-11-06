@@ -7,6 +7,7 @@ import { POST as shiftsPost } from '../src/app/api/shifts/route';
 import { repo } from '../src/repositories';
 import { ScheduleSlot, TimeShift } from '../src/types/schedule';
 import { getTodayDateStr } from '../src/utils/date';
+import { authed, sessionCookie } from './helpers/auth';
 
 /** Dời một ngày (YYYY-MM-DD) đi n ngày, tránh lệch múi giờ. */
 function addDays(dateStr: string, days: number): string {
@@ -88,7 +89,7 @@ describe('Bulk Schedule Operations Suite', () => {
 
   it('1. Tính năng 1: Thay đổi lịch/ca học hàng loạt TỪ NAY VỀ SAU cho lớp học (Future Bulk Update)', async () => {
     // Dời từ ngày D_FUT1 trở đi sang Ca 2 (10:15 - 12:15) và đổi giáo viên
-    const req = new Request('http://localhost/api/schedule/bulk-update-future', {
+    const req = authed('http://localhost/api/schedule/bulk-update-future', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -134,7 +135,7 @@ describe('Bulk Schedule Operations Suite', () => {
 
   it('2. Tính năng 2: Thao tác thay đổi hàng loạt THEO NGÀY (Daily Bulk Operations)', async () => {
     // 2.1 RESCHEDULE_DAY: Dời toàn bộ ca của ngày D_PAST sang ngày D_PAST_MOVED
-    const reqReschedule = new Request('http://localhost/api/schedule/bulk-daily-action', {
+    const reqReschedule = authed('http://localhost/api/schedule/bulk-daily-action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -152,7 +153,7 @@ describe('Bulk Schedule Operations Suite', () => {
     assert.equal(slot01After?.date, D_PAST_MOVED);
 
     // 2.2 SHIFT_MIGRATION: Chuyển ca trong ngày (dời ca 1 sang ca 3 trong ngày D_PAST_MOVED)
-    const reqShiftMigrate = new Request('http://localhost/api/schedule/bulk-daily-action', {
+    const reqShiftMigrate = authed('http://localhost/api/schedule/bulk-daily-action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -173,7 +174,7 @@ describe('Bulk Schedule Operations Suite', () => {
     assert.equal(slot01Shift3?.endTime, '15:30');
 
     // 2.4 CANCEL_DAY: Hủy tất cả các ca trong ngày D_PAST_MOVED
-    const reqCancel = new Request('http://localhost/api/schedule/bulk-daily-action', {
+    const reqCancel = authed('http://localhost/api/schedule/bulk-daily-action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -207,7 +208,7 @@ describe('Bulk Schedule Operations Suite', () => {
     });
 
     // Gọi qua API POST /api/shifts với bulkShifts
-    const req = new Request('http://localhost/api/shifts', {
+    const req = authed('http://localhost/api/shifts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

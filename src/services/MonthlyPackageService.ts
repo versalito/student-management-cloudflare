@@ -65,7 +65,7 @@ export class MonthlyPackageService {
 
   public static async recordSessionAttendance(studentId: string, month: string): Promise<StudentMonthlyPackage | null> {
     const id = 'SMP_' + studentId + '_' + month.replace('-', '_');
-    let pkg = this.packages.get(id);
+    const pkg = this.packages.get(id);
     if (!pkg) return null;
 
     pkg.usedSessions += 1;

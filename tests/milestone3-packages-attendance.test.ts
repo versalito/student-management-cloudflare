@@ -7,13 +7,14 @@ import { GET as getAnalytics } from '../src/app/api/attendance/analytics/route';
 import { GET as getCurrentSession } from '../src/app/api/attendance/current-session/route';
 import { generateVietQRUrl } from '../src/utils/vietqr';
 import { SessionPackage } from '../src/types/package';
+import { authed, sessionCookie } from './helpers/auth';
 
 test('Milestone 3 Suite: Quản lý Gói Buổi Học, Tự Chọn Gói, Status Override & Thống Kê Chuyên Cần', async (t) => {
   const repo = LocalRepository.getInstance();
 
   await t.test('1. Gói Buổi Học (Session Packages) CRUD qua API /api/packages', async () => {
     // 1.1 GET /api/packages
-    const reqGet = new Request('http://localhost:3000/api/packages');
+    const reqGet = authed('http://localhost:3000/api/packages');
     const resGet = await getPackages(reqGet);
     const dataGet = await resGet.json();
     assert.equal(resGet.status, 200);
@@ -29,7 +30,7 @@ test('Milestone 3 Suite: Quản lý Gói Buổi Học, Tự Chọn Gói, Status 
       isActive: true,
       description: 'Gói dành cho học sinh mới',
     };
-    const reqPost = new Request('http://localhost:3000/api/packages', {
+    const reqPost = authed('http://localhost:3000/api/packages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newPkgData),
@@ -44,7 +45,7 @@ test('Milestone 3 Suite: Quản lý Gói Buổi Học, Tự Chọn Gói, Status 
     const createdId = dataPost.package.id;
 
     // 1.3 PUT /api/packages - Cập nhật số buổi & giá tiền
-    const reqPut = new Request('http://localhost:3000/api/packages', {
+    const reqPut = authed('http://localhost:3000/api/packages', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -63,7 +64,7 @@ test('Milestone 3 Suite: Quản lý Gói Buổi Học, Tự Chọn Gói, Status 
     assert.equal(dataPut.package.isActive, false);
 
     // 1.4 DELETE /api/packages - Xóa gói
-    const reqDel = new Request(`http://localhost:3000/api/packages?id=${createdId}`);
+    const reqDel = authed(`http://localhost:3000/api/packages?id=${createdId}`);
     const resDel = await deletePackage(reqDel);
     const dataDel = await resDel.json();
     assert.equal(resDel.status, 200);
@@ -80,7 +81,7 @@ test('Milestone 3 Suite: Quản lý Gói Buổi Học, Tự Chọn Gói, Status 
     assert.ok(activePkg, 'Phải có ít nhất 1 gói khả dụng');
 
     // 2.1 Học sinh bấm mua gói qua POST /api/finance action: PURCHASE_PACKAGE
-    const reqPurchase = new Request('http://localhost:3000/api/finance', {
+    const reqPurchase = authed('http://localhost:3000/api/finance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -130,7 +131,7 @@ test('Milestone 3 Suite: Quản lý Gói Buổi Học, Tự Chọn Gói, Status 
     });
 
     // 3.1 Chuyển sang "Miễn giảm" kèm lý do học bổng
-    const reqOverride1 = new Request('http://localhost:3000/api/finance', {
+    const reqOverride1 = authed('http://localhost:3000/api/finance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -150,7 +151,7 @@ test('Milestone 3 Suite: Quản lý Gói Buổi Học, Tự Chọn Gói, Status 
     assert.equal(dataOverride1.invoice.note, 'Học bổng 100% tài năng trẻ');
 
     // 3.2 Chuyển sang "Đã nộp" (tiền mặt)
-    const reqOverride2 = new Request('http://localhost:3000/api/finance', {
+    const reqOverride2 = authed('http://localhost:3000/api/finance', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -170,7 +171,7 @@ test('Milestone 3 Suite: Quản lý Gói Buổi Học, Tự Chọn Gói, Status 
     assert.equal(dataOverride2.invoice.paymentMethod, 'Tiền mặt');
 
     // 3.3 Chuyển sang "Quá hạn"
-    const reqOverride3 = new Request('http://localhost:3000/api/finance', {
+    const reqOverride3 = authed('http://localhost:3000/api/finance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -196,7 +197,7 @@ test('Milestone 3 Suite: Quản lý Gói Buổi Học, Tự Chọn Gói, Status 
 
   await t.test('4. Theo dõi lớp đang học Real-time (/api/attendance/current-session)', async () => {
     // 2026-09-21 là Thứ Hai, có ca học thật trong thời khóa biểu.
-    const reqSession = new Request('http://localhost:3000/api/attendance/current-session?date=2026-09-21');
+    const reqSession = authed('http://localhost:3000/api/attendance/current-session?date=2026-09-21');
     const resSession = await getCurrentSession(reqSession);
     const dataSession = await resSession.json();
 
@@ -214,7 +215,7 @@ test('Milestone 3 Suite: Quản lý Gói Buổi Học, Tự Chọn Gói, Status 
   });
 
   await t.test('5. Bảng Tổng Kết Chuyên Cần Theo Tháng (/api/attendance/analytics)', async () => {
-    const reqAnalytics = new Request('http://localhost:3000/api/attendance/analytics?month=2026-09');
+    const reqAnalytics = authed('http://localhost:3000/api/attendance/analytics?month=2026-09');
     const resAnalytics = await getAnalytics(reqAnalytics);
     const dataAnalytics = await resAnalytics.json();
 

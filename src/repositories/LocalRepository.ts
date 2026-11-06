@@ -1,3 +1,4 @@
+import { bumpReferenceVersion, REFERENCE_CACHE_SCOPE } from '@/lib/cache/referenceCache';
 import { AppNotification } from '@/types/notification';
 import { IRepository } from './IRepository';
 import type {
@@ -19,6 +20,7 @@ import { TimeShift, TIME_SHIFTS } from '@/types/schedule';
 import { ScheduleSlot, ClassRequest, StudentSlotSwap } from '@/types/schedule';
 import { AttendanceRecord } from '@/types/attendance';
 import { TuitionInvoice, PayrollRecord } from '@/types/finance';
+import { BankTransaction } from '@/types/bank';
 import { SessionPackage } from '@/types/package';
 import { DEFAULT_PACKAGES } from './seeds/seedPackages';
 import { AuditLog } from '@/types/audit';
@@ -47,6 +49,7 @@ export class LocalRepository implements IRepository {
   private payrollRecords: Map<string, PayrollRecord> = new Map();
   private auditLogs: AuditLog[] = [];
   private notifications: Map<string, AppNotification> = new Map();
+  private bankTransactions: Map<string, BankTransaction> = new Map();
 
   private isInitialized = false;
 
@@ -102,6 +105,7 @@ export class LocalRepository implements IRepository {
     this.tuitionInvoices.clear();
     this.payrollRecords.clear();
     this.auditLogs = [];
+    this.bankTransactions.clear();
     this.isInitialized = false;
     this.init();
   }
@@ -151,6 +155,11 @@ export class LocalRepository implements IRepository {
     return this.students.get(id) || null;
   }
 
+  public async getStudentsByIds(ids: string[]): Promise<Student[]> {
+    const unique = new Set(ids.filter(Boolean));
+    return Array.from(this.students.values()).filter((s) => unique.has(s.id));
+  }
+
   public async getAllStudents(): Promise<Student[]> {
     return Array.from(this.students.values());
   }
@@ -179,16 +188,19 @@ export class LocalRepository implements IRepository {
   }
 
   public async updateTeacher(teacher: Teacher): Promise<Teacher> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     this.teachers.set(teacher.id, { ...teacher });
     return teacher;
   }
 
   public async createTeacher(teacher: Teacher): Promise<Teacher> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     this.teachers.set(teacher.id, { ...teacher });
     return teacher;
   }
 
   public async deleteTeacher(id: string): Promise<boolean> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     return this.teachers.delete(id);
   }
 
@@ -250,11 +262,7 @@ export class LocalRepository implements IRepository {
       students = students.filter(student => matchesUniFilter(student, query.uni!));
     }
 
-    if (query.all) {
-      return { students, total: students.length };
-    }
-
-    const from = (page - 1) * limit;
+    const from = query.all ? 0 : (page - 1) * limit;
     return { students: students.slice(from, from + limit), total: students.length };
   }
 
@@ -263,11 +271,13 @@ export class LocalRepository implements IRepository {
   }
 
   public async updateClass(classEntity: ClassEntity): Promise<ClassEntity> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     this.classes.set(classEntity.id, { ...classEntity });
     return classEntity;
   }
 
   public async deleteClass(id: string): Promise<boolean> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const existed = this.classes.delete(id);
     if (existed) {
       for (const [secId, sec] of this.classSections.entries()) {
@@ -292,6 +302,7 @@ export class LocalRepository implements IRepository {
   }
 
   public async createClass(classEntity: ClassEntity): Promise<ClassEntity> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     this.classes.set(classEntity.id, { ...classEntity });
     return classEntity;
   }
@@ -351,12 +362,14 @@ export class LocalRepository implements IRepository {
   }
 
   public async createClassSection(section: ClassSection): Promise<ClassSection> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     this.classSections.set(section.id, { ...section });
     this.classSectionStudents.set(section.id, [...(section.studentIds || [])]);
     return section;
   }
 
   public async updateClassSection(section: ClassSection): Promise<ClassSection> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     this.classSections.set(section.id, { ...section });
     if (section.studentIds !== undefined) {
       this.classSectionStudents.set(section.id, [...section.studentIds]);
@@ -365,6 +378,7 @@ export class LocalRepository implements IRepository {
   }
 
   public async deleteClassSection(id: string): Promise<boolean> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const existed = this.classSections.delete(id);
     this.classSectionStudents.delete(id);
     this.classSectionStudentDays.delete(id);
@@ -372,6 +386,7 @@ export class LocalRepository implements IRepository {
   }
 
   public async addStudentToSection(sectionId: string, studentId: string, scheduleDays?: number[]): Promise<void> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const ids = this.classSectionStudents.get(sectionId) || [];
     if (!ids.includes(studentId)) {
       ids.push(studentId);
@@ -386,6 +401,7 @@ export class LocalRepository implements IRepository {
   }
 
   public async removeStudentFromSection(sectionId: string, studentId: string): Promise<void> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     const ids = (this.classSectionStudents.get(sectionId) || []).filter(id => id !== studentId);
     this.classSectionStudents.set(sectionId, ids);
     const daysMap = this.classSectionStudentDays.get(sectionId);
@@ -423,9 +439,36 @@ export class LocalRepository implements IRepository {
     this.appSettings.set(key, value);
   }
 
+  // Sổ giao dịch ngân hàng — chống xử lý trùng webhook
+  public async claimBankTransaction(tx: BankTransaction): Promise<BankTransaction | null> {
+    if (this.bankTransactions.has(tx.referenceCode)) return null;
+    const stored: BankTransaction = { ...tx, receivedAt: tx.receivedAt || new Date().toISOString() };
+    this.bankTransactions.set(tx.referenceCode, stored);
+    return stored;
+  }
+
+  public async getBankTransaction(referenceCode: string): Promise<BankTransaction | null> {
+    return this.bankTransactions.get(referenceCode) || null;
+  }
+
+  public async finishBankTransaction(referenceCode: string, patch: Partial<BankTransaction>): Promise<void> {
+    const existing = this.bankTransactions.get(referenceCode);
+    if (!existing) return;
+    this.bankTransactions.set(referenceCode, { ...existing, ...patch });
+  }
+
   // Schedule
   public async getAllScheduleSlots(): Promise<ScheduleSlot[]> {
     return Array.from(this.scheduleSlots.values());
+  }
+
+  public async getMaxScheduleSlotNumber(): Promise<number> {
+    let max = 0;
+    for (const id of this.scheduleSlots.keys()) {
+      const match = String(id || '').match(/^SCH(\d+)$/i);
+      if (match) max = Math.max(max, Number(match[1]));
+    }
+    return max;
   }
 
   public async getScheduleSlotsQuery(query: ScheduleSlotQuery = {}): Promise<ScheduleSlotWithClassName[]> {
@@ -474,18 +517,21 @@ export class LocalRepository implements IRepository {
   }
 
   public async createTimeShift(shift: TimeShift): Promise<TimeShift> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     await this.getAllTimeShifts();
     this.timeShifts.set(shift.id, { ...shift });
     return shift;
   }
 
   public async updateTimeShift(shift: TimeShift): Promise<TimeShift> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     await this.getAllTimeShifts();
     this.timeShifts.set(shift.id, { ...shift });
     return shift;
   }
 
   public async deleteTimeShift(id: number): Promise<boolean> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     await this.getAllTimeShifts();
     return this.timeShifts.delete(id);
   }
@@ -570,6 +616,10 @@ export class LocalRepository implements IRepository {
     return Array.from(this.attendanceRecords.values()).filter(a => a.date === date);
   }
 
+  public async getAttendanceByMonth(month: string): Promise<AttendanceRecord[]> {
+    return Array.from(this.attendanceRecords.values()).filter(a => a.date.startsWith(month));
+  }
+
   public async saveAttendanceRecord(record: AttendanceRecord): Promise<AttendanceRecord> {
     this.attendanceRecords.set(record.id, { ...record });
     return record;
@@ -620,16 +670,19 @@ export class LocalRepository implements IRepository {
   }
 
   public async createSessionPackage(pkg: SessionPackage): Promise<SessionPackage> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     this.sessionPackages.set(pkg.id, { ...pkg });
     return pkg;
   }
 
   public async updateSessionPackage(pkg: SessionPackage): Promise<SessionPackage> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     this.sessionPackages.set(pkg.id, { ...pkg });
     return pkg;
   }
 
   public async deleteSessionPackage(id: string): Promise<boolean> {
+    bumpReferenceVersion(REFERENCE_CACHE_SCOPE);
     return this.sessionPackages.delete(id);
   }
 

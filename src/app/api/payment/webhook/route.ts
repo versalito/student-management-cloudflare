@@ -1,8 +1,36 @@
 import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { TuitionInvoice, TuitionStatus } from '@/types/finance';
+import { verifyWebhookRequest } from '@/lib/bank/webhookAuth';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Mã giao dịch dùng làm khoá chống trùng.
+ *
+ * Cổng thanh toán luôn gửi kèm mã giao dịch (`referenceCode`/`transactionCode`/`id`);
+ * nếu thiếu, băm nội dung + số tiền + số dư luỹ kế để hai lần retry cùng một
+ * giao dịch cho ra cùng khoá. Băm có `accumulated`/`when` nên hai khoản chuyển
+ * giống hệt nhau vẫn tách được.
+ */
+async function deriveReferenceCode(body: any): Promise<string> {
+  const explicit = body?.referenceCode || body?.transactionCode || body?.id;
+  if (explicit) return String(explicit).trim();
+
+  const material = [
+    body?.gateway || body?.bankBrandName || '',
+    body?.transferAmount ?? body?.amount ?? '',
+    body?.accumulated ?? '',
+    body?.transactionDate ?? body?.when ?? '',
+    body?.content || body?.description || '',
+  ].join('|');
+
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(material));
+  const hex = Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  return `HASH_${hex.slice(0, 32)}`;
+}
 
 /**
  * Endpoint tiếp nhận Webhook ngân hàng (SePay, Casso, Bank Gateway)
@@ -22,29 +50,116 @@ export const dynamic = 'force-dynamic';
  * }
  */
 export async function POST(request: Request) {
+  // 0. Xác thực: webhook không có secret hợp lệ thì không được chạm vào dữ liệu.
+  const authResult = verifyWebhookRequest(request);
+  if (!authResult.ok) {
+    return NextResponse.json(
+      { success: false, message: authResult.message },
+      { status: authResult.status }
+    );
+  }
+
+  let body: any;
   try {
-    const body = await request.json();
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ success: false, message: 'Payload không phải JSON hợp lệ' }, { status: 400 });
+  }
+
+  const referenceCode = await deriveReferenceCode(body);
+
+  // 0.1 Chống replay: cùng một mã giao dịch chỉ được gạch nợ một lần.
+  // Ghi sổ TRƯỚC khi xử lý; insert trùng (unique_violation) nghĩa là đã xử lý rồi.
+  let claimed;
+  try {
+    claimed = await repo.claimBankTransaction({
+      referenceCode,
+      gateway: String(body?.gateway || body?.bankBrandName || 'BANK_GATEWAY'),
+      transferAmount: Number(body?.transferAmount ?? body?.amount ?? 0) || 0,
+      content: String(body?.content || body?.description || body?.code || ''),
+      appliedAmount: 0,
+      invoiceIds: '',
+      resultStatus: 0,
+      resultMessage: 'Đang xử lý',
+    });
+  } catch (claimErr: any) {
+    console.error('[BANK_WEBHOOK] Không ghi được sổ giao dịch:', claimErr);
+    return NextResponse.json(
+      { success: false, message: 'Không ghi được sổ giao dịch ngân hàng' },
+      { status: 500 }
+    );
+  }
+
+  if (!claimed) {
+    const existing = await repo.getBankTransaction(referenceCode).catch(() => null);
+    return NextResponse.json(
+      {
+        success: true,
+        duplicate: true,
+        message: 'Giao dịch này đã được xử lý trước đó, bỏ qua để tránh gạch nợ hai lần',
+        referenceCode,
+        invoiceId: existing?.invoiceIds ? existing.invoiceIds.split(',')[0] : undefined,
+        appliedAmount: existing?.appliedAmount ?? 0,
+      },
+      { status: 200 }
+    );
+  }
+
+  const { status, payload, appliedAmount, invoiceIds, studentId } = await processWebhook(body, referenceCode);
+
+  // 0.2 Chốt kết quả vào sổ. Lỗi ở bước này chỉ làm mất thông tin đối soát,
+  // không được biến giao dịch đã gạch nợ thành lỗi cho cổng thanh toán.
+  try {
+    await repo.finishBankTransaction(referenceCode, {
+      appliedAmount,
+      invoiceIds,
+      studentId,
+      resultStatus: status,
+      resultMessage: payload?.message || payload?.error || '',
+    });
+  } catch (finishErr) {
+    console.error('[BANK_WEBHOOK] Không cập nhật được kết quả giao dịch:', finishErr);
+  }
+
+  return NextResponse.json(payload, { status });
+}
+
+/** Xử lý gạch nợ. Trả về mã HTTP + payload để route ghi lại vào sổ giao dịch. */
+async function processWebhook(
+  body: any,
+  referenceCode: string,
+): Promise<{ status: number; payload: any; appliedAmount: number; invoiceIds: string; studentId?: string }> {
+  try {
 
     // 1. Chuẩn hóa các trường đầu vào
     const transferType = (body.transferType || body.type || 'in').toLowerCase();
     // Bỏ qua nếu là giao dịch tiền ra (out)
     if (transferType === 'out') {
-      return NextResponse.json({
-        success: false,
-        message: 'Bỏ qua giao dịch chuyển tiền đi (transferType = out)',
-      }, { status: 200 });
+      return {
+        status: 200,
+        payload: {
+          success: false,
+          message: 'Bỏ qua giao dịch chuyển tiền đi (transferType = out)',
+        },
+        appliedAmount: 0,
+        invoiceIds: '',
+      };
     }
 
     const transferAmount = Number(body.transferAmount !== undefined ? body.transferAmount : (body.amount !== undefined ? body.amount : 0));
     if (isNaN(transferAmount) || transferAmount <= 0) {
-      return NextResponse.json({
-        success: false,
-        message: 'Số tiền giao dịch không hợp lệ hoặc nhỏ hơn 0',
-      }, { status: 400 });
+      return {
+        status: 400,
+        payload: {
+          success: false,
+          message: 'Số tiền giao dịch không hợp lệ hoặc nhỏ hơn 0',
+        },
+        appliedAmount: 0,
+        invoiceIds: '',
+      };
     }
 
     const rawContent = (body.content || body.description || body.code || '').trim();
-    const referenceCode = (body.referenceCode || body.transactionCode || body.id || `TXN_${Date.now()}`).toString();
     const gateway = (body.gateway || 'BANK_GATEWAY').toString();
 
     // 2. Phân tích nội dung tìm Mã Sinh Viên (STxxx) hoặc Mã Hóa Đơn (TUIxxx / INVxxx)
@@ -132,11 +247,16 @@ export async function POST(request: Request) {
         details: `[CẢNH BÁO] Nhận biến động số dư +${transferAmount.toLocaleString('vi-VN')} VNĐ qua ${gateway}. Nội dung: "${rawContent}". Không tìm thấy hóa đơn hoặc sinh viên phù hợp.`,
       });
 
-      return NextResponse.json({
-        success: false,
-        message: 'Không tìm thấy hóa đơn hoặc sinh viên phù hợp từ nội dung giao dịch',
-        content: rawContent,
-      }, { status: 404 });
+      return {
+        status: 404,
+        payload: {
+          success: false,
+          message: 'Không tìm thấy hóa đơn hoặc sinh viên phù hợp từ nội dung giao dịch',
+          content: rawContent,
+        },
+        appliedAmount: 0,
+        invoiceIds: '',
+      };
     }
 
     // 3. Tiến hành gạch nợ lần lượt theo số tiền nhận được
@@ -213,19 +333,32 @@ export async function POST(request: Request) {
       details: `[BANK_WEBHOOK_AUTO] Gạch nợ tự động thành công +${transferAmount.toLocaleString('vi-VN')} VNĐ qua ${gateway}. Mã GD: ${referenceCode}. Nội dung: "${rawContent}". Hóa đơn xử lý: ${reconciledInvoices.map(r => `${r.id} (+${r.paidAmountAdded.toLocaleString('vi-VN')} đ, Còn nợ: ${r.remainingAmount.toLocaleString('vi-VN')} đ)`).join('; ')}`,
     });
 
-    return NextResponse.json({
-      success: true,
-      message: 'Đã tự động gạch nợ học phí thành công',
-      invoiceId: primaryInvoice?.id,
-      studentId: primaryInvoice?.studentId || matchedStudentId,
-      amountPaid: transferAmount,
-      reconciledInvoices,
-    }, { status: 200 });
+    const appliedAmount = reconciledInvoices.reduce((sum, r) => sum + r.paidAmountAdded, 0);
+
+    return {
+      status: 200,
+      payload: {
+        success: true,
+        message: 'Đã tự động gạch nợ học phí thành công',
+        invoiceId: primaryInvoice?.id,
+        studentId: primaryInvoice?.studentId || matchedStudentId,
+        amountPaid: transferAmount,
+        reconciledInvoices,
+      },
+      appliedAmount,
+      invoiceIds: reconciledInvoices.map((r) => r.id).join(','),
+      studentId: (primaryInvoice?.studentId || matchedStudentId) || undefined,
+    };
 
   } catch (error: any) {
-    return NextResponse.json({
-      success: false,
-      error: error?.message || 'Lỗi xử lý webhook gạch nợ ngân hàng',
-    }, { status: 500 });
+    return {
+      status: 500,
+      payload: {
+        success: false,
+        error: error?.message || 'Lỗi xử lý webhook gạch nợ ngân hàng',
+      },
+      appliedAmount: 0,
+      invoiceIds: '',
+    };
   }
 }

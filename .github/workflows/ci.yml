@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Một PR mới đẩy lên thì huỷ lần chạy cũ của cùng nhánh — CI của lần đẩy trước
+# không còn giá trị và chỉ chiếm runner.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Typecheck · Lint · Test · Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci` bám đúng package-lock.json -> build lặp lại được.
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # Test chạy trên nguồn dữ liệu in-memory nên không cần Supabase/secret.
+      - name: Test
+        run: npm test
+
+      # Ngưỡng cảnh báo hiện có trong package.json là nợ kỹ thuật đã biết
+      # (--max-warnings=367); lỗi lint thật vẫn làm job đỏ.
+      - name: Lint
+        run: npm run lint
+
+      - name: Build (Next)
+        run: npm run build
+        env:
+          # Trang build-time đọc env; giá trị giả đủ để `next build` chạy vì
+          # không có trang nào gọi Supabase lúc build.
+          DATA_SOURCE: local
+          NEXT_PUBLIC_APP_ENV: ci
+
+  perf:
+    name: Perf budget (bootstrap + endpoint nóng)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: verify
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+        env:
+          DATA_SOURCE: local
+          NEXT_PUBLIC_APP_ENV: ci
+
+      # Server + phép đo trong cùng một step: tiến trình nền bị dọn khi step
+      # kết thúc, nên tách step sẽ làm probe không thấy server.
+      - name: Probe
+        env:
+          DATA_SOURCE: local
+          NEXT_PUBLIC_APP_ENV: ci
+          PROBE_USERNAME: admin
+          PROBE_PASSWORD: admin123
+        run: |
+          npm start -- -p 3112 &
+          server_pid=$!
+          trap 'kill $server_pid 2>/dev/null || true' EXIT
+
+          for _ in $(seq 1 60); do
+            # `/login` là trang công khai: 200 = server đã sẵn sàng.
+            if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3112/login | grep -q 200; then
+              break
+            fi
+            sleep 1
+          done
+
+          # 800 ms: máy CI 2 vCPU chậm hơn máy dev, ngưỡng để bắt hồi quy bậc
+          # (N+1 query, đọc toàn bảng) chứ không phải để tinh chỉnh.
+          ./scripts/perf-probe.sh http://127.0.0.1:3112 20 800

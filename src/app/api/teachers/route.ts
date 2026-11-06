@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
+import { cachedJson } from '@/lib/cache/referenceCache';
 import { AuthService } from '@/services/AuthService';
+import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +23,9 @@ function slugifyTeacherUsername(name: string): string {
 }
 
 export async function GET(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','TEACHER','STUDENT']);
+  if (auth.response) return auth.response;
+
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
 
@@ -29,43 +34,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ teacher });
   }
 
-  // Tự động đồng bộ đối soát: Quét tất cả user có role TEACHER, nếu thiếu trong hồ sơ teachers thì tự động bổ sung ngay
-  try {
-    const allUsers = await repo.getAllUsers();
-    const teacherUsers = allUsers.filter(u => u.role === 'TEACHER');
-    let existingTeachers = await repo.getAllTeachers();
-    const existingTeacherIds = new Set(existingTeachers.map(t => t.id));
-
-    for (const u of teacherUsers) {
-      if (!existingTeacherIds.has(u.id)) {
-        try {
-          const syncedTeacher = {
-            id: u.id,
-            name: u.name,
-            phone: '0901234567',
-            specialty: 'Bộ môn chung',
-            hourlyRate: 300000,
-            ratePerSession: 250000,
-            status: 'Đang dạy' as const,
-            assignedClassIds: [],
-            createdAt: new Date().toISOString(),
-          };
-          await repo.createTeacher(syncedTeacher);
-          existingTeacherIds.add(u.id);
-        } catch (e) {
-          console.warn('[AUTO-HEAL-TEACHER] Bỏ qua lỗi đồng bộ hồ sơ cho', u.id, e);
-        }
-      }
-    }
-  } catch (healErr) {
-    console.warn('[AUTO-HEAL-SYNC-ERROR]:', healErr);
-  }
-
-  const teachers = await repo.getAllTeachers();
-  return NextResponse.json({ teachers });
+  // GET là read-only: hồ sơ giáo viên thiếu được đối soát bằng
+  // `POST /api/admin/reconcile` (npm run db:reconcile), không ghi trong lúc đọc.
+  return cachedJson('teachers', 'all', () => repo.getAllTeachers(), (teachers) => ({ teachers }));
 }
 
 export async function POST(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+
   try {
     const body = await request.json();
     const { name, specialty, hourlyRate = 300000, phone, bio, fastOnboarding = false } = body;
@@ -141,9 +118,9 @@ export async function POST(request: Request) {
 
     await repo.addAuditLog({
       action: 'CREATE',
-      userId: 'ADMIN001',
-      userName: 'Quản trị viên',
-      userRole: 'ADMIN',
+      userId: auth.user.id,
+      userName: auth.user.name,
+      userRole: auth.user.role,
       targetResource: 'TEACHER',
       targetId: newId,
       details: `Thêm giảng viên mới ${newId} - ${trimmedName} (${effectiveSpecialty})${fastOnboarding ? ' [Tiếp nhận nhanh]' : ''}`,
@@ -164,6 +141,9 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -213,9 +193,9 @@ export async function DELETE(request: Request) {
     // 5. Ghi Audit Log
     await repo.addAuditLog({
       action: 'DELETE',
-      userId: 'ADMIN001',
-      userName: 'Quản trị viên',
-      userRole: 'ADMIN',
+      userId: auth.user.id,
+      userName: auth.user.name,
+      userRole: auth.user.role,
       targetResource: 'TEACHER',
       targetId: id,
       details: `Xoá giảng viên ${id} - ${teacher.name} (Đã tháo gỡ phân công các lớp và xoá tài khoản)`,
@@ -228,9 +208,25 @@ export async function DELETE(request: Request) {
 }
 
 export async function PUT(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','TEACHER']);
+  if (auth.response) return auth.response;
+
   try {
     const body = await request.json();
     const { id, name, specialty, phone, bio, status, ratePerSession, hourlyRate } = body;
+
+    // Giáo viên chỉ sửa hồ sơ của chính mình, và không được đổi trạng thái hay mức lương.
+    if (auth.user.role === 'TEACHER') {
+      if (!isSelfOrStaff(auth.user, id)) {
+        return NextResponse.json({ error: 'Không có quyền sửa hồ sơ giáo viên khác' }, { status: 403 });
+      }
+      if (status !== undefined || ratePerSession !== undefined || hourlyRate !== undefined) {
+        return NextResponse.json(
+          { error: 'Giáo viên không được sửa trạng thái hoặc mức lương' },
+          { status: 403 }
+        );
+      }
+    }
 
     if (!id || !name || !specialty) {
       return NextResponse.json({ error: "Vui lòng cung cấp ID, họ tên và chuyên môn" }, { status: 400 });
@@ -267,9 +263,9 @@ export async function PUT(request: Request) {
 
     await repo.addAuditLog({
       action: "UPDATE",
-      userId: "ADMIN001",
-      userName: "Quản trị viên",
-      userRole: "ADMIN",
+      userId: auth.user.id,
+      userName: auth.user.name,
+      userRole: auth.user.role,
       targetResource: "TEACHER",
       targetId: id,
       details: "Cập nhật thông tin giảng viên " + id + " - " + name + " (Chuyên môn: " + specialty + ")",

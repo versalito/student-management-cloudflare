@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { TuitionPayrollService } from '@/services/TuitionPayrollService';
+import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,10 +18,20 @@ function currentMonth(): string {
  * Không truyền teacherId thì trả toàn bộ bảng lương của tháng.
  */
 export async function GET(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','TEACHER']);
+  if (auth.response) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const teacherId = searchParams.get('teacherId');
     const month = searchParams.get('month') || currentMonth();
+
+    // Giáo viên chỉ xem bảng lương của chính mình; xem toàn bộ là quyền quản trị.
+    if (auth.user.role === 'TEACHER') {
+      if (!isSelfOrStaff(auth.user, teacherId)) {
+        return NextResponse.json({ success: false, error: 'Không có quyền xem bảng lương của giáo viên khác' }, { status: 403 });
+      }
+    }
 
     const service = new TuitionPayrollService(repo);
 

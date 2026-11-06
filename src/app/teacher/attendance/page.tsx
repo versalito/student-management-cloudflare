@@ -187,7 +187,7 @@ function AttendanceContent() {
           records,
           slotId: selectedSlotId,
           updatedBy: currentUser?.id || '',
-          updaterName: currentUser?.name || '',
+
           userRole: 'TEACHER',
         }),
       });

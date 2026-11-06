@@ -1,28 +1,36 @@
 import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
+import { withCacheHeader, withReferenceCache } from '@/lib/cache/referenceCache';
 import { SessionPackage } from '@/types/package';
+import { authenticate } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','TEACHER','STUDENT']);
+  if (auth.response) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const activeOnly = searchParams.get('activeOnly') === 'true';
 
-    let packages = await repo.getAllSessionPackages();
-    if (activeOnly) {
-      packages = packages.filter(p => p.isActive);
-    }
-    return NextResponse.json({ success: true, packages });
+    const result = await withReferenceCache('packages', 'all', () => repo.getAllSessionPackages());
+    const packages = activeOnly ? result.value.filter((p) => p.isActive) : result.value;
+    return withCacheHeader(NextResponse.json({ success: true, packages }), result.status);
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+  const actorId = auth.user.id;
+  const actorName = auth.user.name;
+
   try {
     const body = await request.json();
-    const { name, sessionCount, price, isActive = true, description, actorId = 'ADMIN001', actorName = 'Quản trị viên' } = body;
+    const { name, sessionCount, price, isActive = true, description } = body;
 
     if (!name || !sessionCount || sessionCount <= 0 || price === undefined || price < 0) {
       return NextResponse.json({ 
@@ -63,9 +71,14 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+  const actorId = auth.user.id;
+  const actorName = auth.user.name;
+
   try {
     const body = await request.json();
-    const { id, name, sessionCount, price, isActive, description, actorId = 'ADMIN001', actorName = 'Quản trị viên' } = body;
+    const { id, name, sessionCount, price, isActive, description } = body;
 
     if (!id) {
       return NextResponse.json({ success: false, error: 'Thiếu mã gói (id)' }, { status: 400 });
@@ -102,10 +115,13 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
-    const actorId = searchParams.get('actorId') || 'ADMIN001';
+    const actorId = auth.user.id;
     const actorName = searchParams.get('actorName') || 'Quản trị viên';
 
     if (!id) {

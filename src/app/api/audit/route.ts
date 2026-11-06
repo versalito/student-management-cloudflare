@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
+import { authenticate } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +17,9 @@ const COUNTED_ACTIONS = [
 ];
 
 export async function GET(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
 

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { AttendanceRecord, AttendanceStatus } from '@/types/attendance';
 import { getTodayDateStr, getNowTimeStr, timeToMinutes, dateToDayOfWeek } from '@/utils/date';
+import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +36,17 @@ async function deductSessionForAttendance(studentId: string, status: AttendanceS
 }
 
 export async function GET(request: Request) {
+  const auth = await authenticate(request, ['ADMIN', 'TEACHER', 'STUDENT']);
+  if (auth.response) return auth.response;
+
+  // Học viên chỉ được đọc sổ điểm danh của chính mình.
+  if (auth.user.role === 'STUDENT') {
+    const requestedStudentId = new URL(request.url).searchParams.get('studentId');
+    if (!isSelfOrStaff(auth.user, requestedStudentId)) {
+      return NextResponse.json({ error: 'Không có quyền xem điểm danh của người khác' }, { status: 403 });
+    }
+  }
+
   try {
     return await getAttendance(request);
   } catch (error) {
@@ -59,32 +71,29 @@ async function getAttendance(request: Request) {
     if (slot && slot.classId) {
        // Ưu tiên danh sách của ca (class_sections); buổi cũ chưa gán ca thì lấy theo lớp.
        let rosterIds: string[] = [];
-       let legacyClassFallback = false;
        if (slot.sectionId) {
-         const section = await repo.getSectionById(slot.sectionId);
-         rosterIds = section?.studentIds || [];
+         // Ba lượt đọc độc lập: gom thành một `Promise.all` thay vì chờ lần lượt.
+         const [section, daysMap, swapsIn, swapsOut] = await Promise.all([
+           repo.getSectionById(slot.sectionId),
+           repo.getSectionStudentScheduleDays(slot.sectionId),
+           repo.getSlotSwaps({ toSlotId: slotId, status: 'ACTIVE' }),
+           repo.getSlotSwaps({ fromSlotId: slotId, status: 'ACTIVE' }),
+         ]);
          // Học sinh có chọn "thứ riêng" thì chỉ vào sổ ở đúng thứ đã chọn.
-         const daysMap = await repo.getSectionStudentScheduleDays(slot.sectionId);
          const slotDow = dateToDayOfWeek(slot.date);
-         rosterIds = rosterIds.filter((stId) => {
+         rosterIds = (section?.studentIds || []).filter((stId) => {
            const days = daysMap[stId] || [];
            if (days.length === 0) return true;
            return slotDow !== null && days.includes(slotDow);
          });
-         // Đổi ca nhanh trong ngày: học sinh đổi SANG ca này thì thêm vào sổ.
-         const swapsIn = await repo.getSlotSwaps({ toSlotId: slotId, status: 'ACTIVE' });
-         for (const sw of swapsIn) {
-           if (!rosterIds.includes(sw.studentId)) rosterIds.push(sw.studentId);
-         }
-         // Đổi ca nhanh trong ngày: học sinh đổi ĐI ca này thì bỏ khỏi sổ.
-         const swapsOut = await repo.getSlotSwaps({ fromSlotId: slotId, status: 'ACTIVE' });
+         // Đổi ca nhanh trong ngày: đổi SANG ca này thì thêm vào sổ, đổi ĐI thì bỏ khỏi sổ.
          const outSet = new Set(swapsOut.map((sw) => sw.studentId));
+         const seen = new Set(rosterIds);
+         for (const sw of swapsIn) {
+           if (!seen.has(sw.studentId)) rosterIds.push(sw.studentId);
+         }
          rosterIds = rosterIds.filter((stId) => !outSet.has(stId));
-       }
-       if (rosterIds.length === 0 && !slot.sectionId) {
-         legacyClassFallback = true;
-       }
-       if (rosterIds.length === 0 && legacyClassFallback) {
+       } else {
          const cls = await repo.getClassById(slot.classId);
          rosterIds = cls?.studentIds || [];
        }
@@ -133,12 +142,22 @@ async function getAttendance(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await authenticate(request, ['ADMIN', 'TEACHER', 'STUDENT']);
+  if (auth.response) return auth.response;
+
   try {
     const body = await request.json();
 
     // 1. Action: STUDENT_CHECKIN - Điểm danh nhanh phía học sinh (Self check-in)
     if (body.action === 'STUDENT_CHECKIN') {
       const { studentId, scheduleSlotId } = body;
+      // Học viên chỉ tự điểm danh cho chính mình.
+      if (!isSelfOrStaff(auth.user, studentId)) {
+        return NextResponse.json(
+          { success: false, error: 'Không có quyền điểm danh cho học viên khác' },
+          { status: 403 }
+        );
+      }
       if (!studentId || !scheduleSlotId) {
         return NextResponse.json(
           { success: false, error: 'Thiếu thông tin studentId hoặc scheduleSlotId' },
@@ -260,16 +279,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, record: saved });
     }
 
-    const updatedBy = body.updatedBy || 'ADMIN001';
-    const updaterName = body.updaterName || 'Quản trị viên';
-    const userRole = updatedBy.startsWith('ADMIN') ? 'ADMIN' : (body.userRole || 'ADMIN');
+    // Các nhánh còn lại là sổ điểm danh do giáo viên/quản trị ghi.
+    if (auth.user.role === 'STUDENT') {
+      return NextResponse.json(
+        { success: false, error: 'Học viên chỉ được tự điểm danh, không được sửa sổ điểm danh' },
+        { status: 403 }
+      );
+    }
+
+    const updatedBy = auth.user.id;
+    const updaterName = auth.user.name;
+    const userRole = auth.user.role;
 
     if (Array.isArray(body.records)) {
       // Bỏ qua các dòng chỉ để hiển thị trên sổ (học viên chưa được điểm danh).
       // Chỉ lưu những dòng có trạng thái thật, tránh ghi placeholder vào DB.
       const realRecords = (body.records as AttendanceRecord[]).filter(
         (r) => r && String(r.status) !== 'Chưa điểm danh'
-      );
+      )
+        // Người ghi sổ do phiên quyết định, không tin `updatedBy` client gửi lên.
+        .map((r) => ({ ...r, updatedBy: updatedBy }));
 
       // Phải đọc sổ hiện có TRƯỚC khi lưu để biết dòng nào là mới, tránh trừ buổi trùng.
       const alreadyRecorded = new Set<string>();
@@ -302,7 +331,7 @@ export async function POST(request: Request) {
       });
       return NextResponse.json({ success: true, count: saved.length, records: saved });
     } else if (body.record) {
-      const saved = await repo.saveAttendanceRecord(body.record);
+      const saved = await repo.saveAttendanceRecord({ ...body.record, updatedBy: updatedBy });
       await deductSessionForAttendance(saved.studentId, saved.status);
       await repo.addAuditLog({
         userId: updatedBy,

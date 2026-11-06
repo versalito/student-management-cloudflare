@@ -671,7 +671,7 @@ Lưu ý: Vui lòng đăng nhập và đổi mật khẩu trong lần đầu sử
               <ul className="list-disc pl-4 space-y-1">
                 <li>Mã giáo viên tự sinh dạng GVxxx</li>
                 <li>Tên đăng nhập: gv_&lt;tên&gt; (bỏ dấu, chữ thường), mật khẩu mặc định 123456</li>
-                <li>Chuyên môn mặc định "Bộ môn chung", đơn giá giờ 300.000đ</li>
+                <li>Chuyên môn mặc định &quot;Bộ môn chung&quot;, đơn giá giờ 300.000đ</li>
                 <li>Hiển thị thẻ bàn giao ngay sau khi tạo xong</li>
               </ul>
             </div>

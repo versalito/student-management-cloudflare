@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint . --max-warnings=367",
     "test": "DATA_SOURCE=local node --import tsx --test tests/**/*.test.ts",
     "seed:gas": "node --import tsx scripts/seed-gas.ts",
     "db:reconcile": "node --import tsx scripts/reconcile-profiles.ts",
@@ -19,22 +19,25 @@
     "@supabase/supabase-js": "^2.116.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.453.0",
-    "next": "14.2.15",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "next": "15.5.29",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "tailwind-merge": "^2.5.4"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "^1.20.6",
+    "@opennextjs/cloudflare": "^1.20.16",
     "@types/node": "^20.17.0",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
     "autoprefixer": "^10.4.20",
+    "dotenv": "^18.0.9",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^15.5.29",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.14",
     "tsx": "^4.19.1",
     "typescript": "^5.6.3",
-    "wrangler": "^4.135.0"
+    "wrangler": "^4.148.0"
   },
   "overrides": {
     "@opennextjs/cloudflare": {

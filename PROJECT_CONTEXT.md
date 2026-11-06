@@ -9,14 +9,14 @@
 
 | Mục | Giá trị |
 |---|---|
-| **Đường dẫn** | `/Users/toilaning/projects/student-management-cloudflare` |
+| **Đường dẫn (máy dev)** | `/Users/toilaning/projects/student-management-cloudflare` |
 | **Tên package** | `student-management-local` |
-| **Loại** | Next.js 14 (App Router) + TypeScript + TailwindCSS |
-| **Deploy** | Cloudflare Workers via OpenNext (`@opennextjs/cloudflare`) |
+| **Loại** | Next.js 15.5 (App Router) + React 19 + TypeScript + TailwindCSS |
+| **Deploy** | Cloudflare Workers via OpenNext (`@opennextjs/cloudflare` 1.20) |
 | **DB** | Supabase Cloud PostgreSQL (project `mvcwdqzmvgjdwqnnxaxb`) |
-| **Repo** | `git@github.com:toilaning/student-management-cloudflare.git` |
-| **Commit mới nhất** | `7780c5e` (2026-09-24) — feat(online): bỏ ràng buộc phòng học vật lý |
-| **Số file src** | ~101 files |
+| **Repo** | https://github.com/versalito/student-management-cloudflare |
+| **Production** | https://student-management-cloudflare.design-toilaning.workers.dev |
+| **Số file src** | 136 file `.ts`/`.tsx` |
 
 ### Dự án KHÁC (KHÔNG nhầm lẫn)
 - `/Users/toilaning/projects/student-management` — bản **cũ (local-only, trước migrate)**. Không dùng.
@@ -28,18 +28,23 @@
 ## 2. Stack & Scripts
 
 ```
-next 14.2.15 · react 18 · supabase-js ^2.116 · tailwind 3.4 · lucide-react
-devDeps: @opennextjs/cloudflare ^1.20.6 · wrangler ^4 · tsx · typescript 5.6
+next 15.5.29 · react 19 · supabase-js ^2.116 · tailwind 3.4 · lucide-react
+devDeps: @opennextjs/cloudflare ^1.20.16 · wrangler ^4.148 · tsx · typescript 5.6 · eslint 9
 ```
 
 | Script | Lệnh |
 |---|---|
 | Dev | `npm run dev` |
 | Build | `npm run build` |
-| Test | `npm test` (node --test tests/**/*.test.ts) |
+| Build worker | `npm run build:cf` (OpenNext) |
+| Test | `npm test` (`DATA_SOURCE=local node --import tsx --test tests/**/*.test.ts`) |
+| Lint | `npm run lint` (`eslint . --max-warnings=367`) |
 | Deploy CF | `npm run deploy` (build opennext + wrangler deploy) |
-| Preview CF | `npm run preview` |
-| Discord bot | `npm run bot:start` / `bot:dev` |
+| Preview CF | `npm run preview` (workerd thật, có `caches.default` + KV) |
+| Đo hiệu năng | `./scripts/perf-probe.sh <base_url> [rounds] [p95_budget_ms]` |
+| Kiểm RLS | `node scripts/verify-rls.mjs` |
+| Đối soát hồ sơ | `npm run db:reconcile` |
+| Audit thứ trong tuần của slot | `npm run db:audit-slots` |
 
 ---
 
@@ -51,17 +56,20 @@ src/
 │   ├── admin/              # 13 trang: dashboard, students, teachers, classes,
 │   │                       #   attendance(+analytics), calendar, tuition, finance,
 │   │                       #   requests, accounts, audit, guides
-│   ├── teacher/            # 5 trang: dashboard, classes, schedule, attendance, requests
+│   ├── teacher/            # 6 trang: dashboard, classes, schedule, attendance, requests, settings
 │   ├── student/            # 7 trang: dashboard, classes, schedule, attendance,
 │   │                       #   tuition, requests, settings
 │   ├── login/              # đăng nhập
-│   └── api/                # 40 API routes (xem mục 5)
+│   └── api/                # 32 route (xem mục 5)
 ├── components/             # UI theo domain: admin, teacher, student, attendance,
 │   │                       #   tuition, common
 ├── context/AppContext.tsx  # state toàn cục
 ├── lib/
-│   ├── supabase.ts         # Supabase client
-│   └── discordAuth.ts      # auth cho Discord bot
+│   ├── auth/session.ts     # ký/đọc cookie phiên HMAC (WebCrypto), authenticate()
+│   ├── cache/referenceCache.ts # cache tham chiếu ở edge + version key qua KV
+│   ├── bank/webhookAuth.ts # xác thực secret webhook ngân hàng (fail closed)
+│   └── supabase.ts         # Supabase client (service_role)
+├── middleware.ts           # chặn /admin, /teacher, /student theo role trong cookie
 ├── repositories/           # Data-access layer
 │   ├── IRepository.ts          # interface chuẩn (hợp đồng dữ liệu)
 │   ├── SupabaseRepository.ts   # impl production (Supabase)
@@ -70,16 +78,19 @@ src/
 ├── services/               # Business logic
 │   ├── AuthService · StudentService · ConflictEngine · BulkScheduleService
 │   ├── ShiftService · TuitionPayrollService · LedgerService
-│   ├── MonthlyPackageService · AuditService
-├── types/                  # 14 file type: student, teacher, classroom, schedule,
+│   ├── MonthlyPackageService · AuditService · ScheduleViewService · ProfileReconcileService
+├── types/                  # type domain: student, teacher, classroom, schedule,
 │                           #   attendance, finance, package, ledger, bank, auth,
 │                           #   notification, audit, monthlyPackage
 └── utils/
 
-tests/                      # 19 test files (node:test)
-discord-bot/src/            # bot: api.js, commands/, events/, cron/, config.js
-supabase/setup.sql          # script duy nhất dựng database Supabase (idempotent)
-docs/archive/               # 19 SPEC files cũ (đặc tả tính năng, giữ làm lịch sử)
+tests/                      # 28 test files (node:test) + e2e-db-audit.ts
+supabase/setup.sql          # script dựng database từ đầu (idempotent)
+supabase/rls_lockdown.sql   # khoá anon/authenticated trên toàn bộ bảng
+supabase/migration_*.sql    # bản vá tăng dần (perf index, bank_transactions)
+supabase/update_*.sql       # bản vá theo ngày
+scripts/                    # perf-probe.sh, verify-rls.mjs, reconcile-profiles.ts, audit-slot-weekdays.ts
+.github/workflows/ci.yml    # 2 job: verify + perf
 ```
 
 ---
@@ -89,61 +100,95 @@ docs/archive/               # 19 SPEC files cũ (đặc tả tính năng, giữ 
 - **Có 2 implementation của `IRepository`**, chọn qua env `DATA_SOURCE`:
   - `supabase` → `SupabaseRepository` (production, Supabase Cloud)
   - `local` → `LocalRepository` (in-memory, test/offline)
-- **Thêm/sửa field dữ liệu** thường phải sync 3 nơi: `types/`, `IRepository.ts`, `SupabaseRepository.ts` (+ `LocalRepository.ts` nếu test dùng).
+- **Hợp đồng chung bắt buộc**: mọi method ghi dữ liệu tham chiếu (teacher / class / class section / time shift / session package / ghi danh) phải gọi `bumpReferenceVersion(REFERENCE_CACHE_SCOPE)` trong **cả hai** repo, nếu không cache edge sẽ trả dữ liệu cũ tới 30 s.
+- **Thêm/sửa field dữ liệu** thường phải sync 3 nơi: `types/`, `IRepository.ts`, `SupabaseRepository.ts` (+ `LocalRepository.ts` để test chạy được).
 - Có **2-way sync** user↔student↔teacher ở DB level (Postgres trigger).
 
 ---
 
-## 5. API Routes (src/app/api/) — 40 endpoints
+## 5. API Routes (src/app/api/) — 32 route
 
 ```
-attendance/            route.ts, current-session, analytics
-audit/                 route.ts
-auth/login/            route.ts
-classes/               route.ts, enroll
-discord/               attendance, attendance/single, student-class
-finance/               route.ts, ledger, expenses
-notifications/         route.ts
-packages/              route.ts
-payment/webhook/       route.ts          # VietQR webhook
-requests/              route.ts
-schedule/              route.ts, bulk-generate, bulk-daily-action, bulk-update-future
-settings/bank/         route.ts
-shifts/                route.ts
-students/              route.ts, [id]
-teachers/              route.ts
-users/                 route.ts
+admin/reconcile/            POST  đối soát hồ sơ students/teachers thiếu
+attendance/                 GET/POST điểm danh
+attendance/analytics/       GET
+attendance/current-session/ GET  ca đang diễn ra
+audit/                      GET  audit log (phân trang)
+auth/login/                 POST đăng nhập, phát cookie phiên + rate limit
+auth/me/                    GET  user hiện tại (nguồn quyền duy nhất của client)
+bootstrap/                  GET  gộp slots+classes+teachers+shifts+students trong 1 request
+classes/                    GET/POST/PUT/DELETE
+classes/enroll/             POST
+classes/sections/           GET/POST/PUT/DELETE
+finance/                    GET/POST học phí
+finance/expenses/           GET/POST
+finance/ledger/             GET
+notifications/              GET/POST
+packages/                   GET/POST/PUT/DELETE gói buổi
+payment/webhook/            POST webhook ngân hàng (secret + idempotent)
+payroll/                    GET/POST chấm công & lương
+requests/                   GET/POST yêu cầu
+schedule/                   GET lịch
+schedule/bulk-daily-action/ POST
+schedule/bulk-generate/     POST
+schedule/bulk-update-future/ POST
+settings/bank/              GET/PUT cấu hình VietQR
+shifts/                     GET/POST/PUT/DELETE
+students/                   GET (phân trang)/POST
+students/[id]/              GET/PUT/DELETE
+student/swap/               POST đổi ca
+teacher-checkin/            POST
+teachers/                   GET (cache 30 s)/POST/PUT/DELETE
+users/                      GET/POST/PUT/DELETE
+users/password/             PUT
 ```
+
+Mọi route gọi `authenticate(request, roles)` trước khi chạm dữ liệu; webhook dùng `webhookAuth`; mọi route ghi đều ghi audit log với actor lấy từ phiên (không hardcode).
 
 ---
 
 ## 6. Miền nghiệp vụ chính
 
-1. **Phân quyền**: 3 role — `admin` / `teacher` / `student`, mỗi role có portal riêng.
+1. **Phân quyền**: 3 role — `admin` / `teacher` / `student`, mỗi role có portal riêng, chặn ở middleware + ở từng route.
 2. **Lớp học & lịch**: class, classroom, schedule slot, shift, bulk schedule.
 3. **Điểm danh (attendance)**: session theo giờ thực, timezone `Asia/Saigon`, analytics.
 4. **Học phí & lương (finance)**: tuition invoice, payroll/`sessionRate`, ledger, expense, VietQR webhook, monthly package, monthly rollover.
-5. **Conflict Engine**: phát hiện trùng lịch real-time. **Lưu ý:** model 100% online — 1 GV có thể dạy nhiều lớp cùng lúc, KHÔNG còn chặn teacher-conflict (commit `0f0c3fc`).
+5. **Conflict Engine**: phát hiện trùng lịch real-time. **Lưu ý:** model 100% online — 1 GV có thể dạy nhiều lớp cùng lúc, KHÔNG chặn teacher-conflict.
 6. **Discord bot**: điểm danh qua Discord, orientation room, cron.
-7. **Hệ thống phụ**: notification, request (gửi yêu cầu), audit log, milestone/package.
+7. **Hệ thống phụ**: notification, request, audit log, milestone/package.
 
 ---
 
-## 7. Quy tắc làm việc khi sửa lắt nhắt
+## 7. Hiệu năng (Phase 2) — trạng thái đã đo
+
+| Cơ chế | Chỗ code | Ghi chú |
+|---|---|---|
+| `GET /api/bootstrap` gộp 5 bảng | `src/app/api/bootstrap/route.ts` | Thay 4 request của trang lịch; trả trong 1 round trip |
+| Cache tham chiếu 30 s ở edge | `src/lib/cache/referenceCache.ts` | `caches.default` + version key trong KV `RATE_LIMIT_KV`; header `X-Cache: HIT/MISS/BYPASS` |
+| Không cache khi không có Cache API | `edgeCache()` | Node/`next start` → `BYPASS`, test không đọc cache của nhau |
+| `public/_headers` | `public/_headers` | `/_next/static/*` immutable 1 năm |
+| HTML/API `private, no-store` | `next.config.mjs` | Tránh CDN trả HTML của người khác |
+| Probe hồi quy | `scripts/perf-probe.sh` | p50/p95 + ngưỡng ms, exit 1 khi vượt |
+| CI hồi quy | `.github/workflows/ci.yml` | job `perf` chạy probe với ngưỡng 800 ms |
+
+Đo thực tế (workerd local, `npm run preview`): `X-Cache` MISS → HIT; sau một `PUT /api/teachers` thì MISS trở lại (version key đổi), request kế tiếp HIT.
+
+---
+
+## 8. Quy tắc làm việc khi sửa lắt nhắt
 
 > Người dùng đã tuyên bố: **từ giờ chỉ sửa nhỏ, không cần load hết dự án.**
 
 1. **Đọc PROJECT_CONTEXT.md này trước** → xác định đúng 1–3 file cần chạm.
 2. Chỉ `read` đúng file liên quan + file type/interface nó phụ thuộc. Không dump cả repo.
 3. Sửa xong → chạy `npm test` (hoặc test file liên quan) nếu logic chạm business rule.
-4. Tuân thủ **pipeline model** trong `AGENTS.md` của workspace `coding_agent`
-   (MANAGER → WORKER → TESTER qua `sessions_spawn`). Việc model nằm trong AGENTS.md, không lặp ở đây.
-5. **An toàn DB**: mọi thay đổi schema/sync phải phản ánh vào `supabase/*.sql`.
+4. **An toàn DB**: mọi thay đổi schema/sync phải phản ánh vào `supabase/*.sql`.
    Không sửa production DB trực tiếp khi chưa xác nhận.
+5. **An toàn cache**: thêm method ghi dữ liệu tham chiếu mới → phải `bumpReferenceVersion` ở cả hai repo, nếu không sẽ trả dữ liệu cũ 30 s.
 
 ---
 
-## 8. Bản đồ tra cứu nhanh (Task → File)
+## 9. Bản đồ tra cứu nhanh (Task → File)
 
 | Cần sửa… | Mở file |
 |---|---|
@@ -160,7 +205,10 @@ users/                 route.ts
 | Test tính năng X | `tests/*X*.test.ts` |
 | Discord bot | `discord-bot/src/...` |
 | State toàn cục | `src/context/AppContext.tsx` |
+| Phiên / phân quyền | `src/lib/auth/session.ts`, `src/middleware.ts` |
+| Cache tham chiếu | `src/lib/cache/referenceCache.ts` |
+| Webhook ngân hàng | `src/app/api/payment/webhook/route.ts`, `src/lib/bank/webhookAuth.ts` |
 
 ---
 
-_Cập nhật lần cuối: 2026-09-27 — tạo bởi ORCHESTRATOR (coding_agent)._
+_Cập nhật lần cuối: 2026-11-06 — sau Phase 1/2 (auth, webhook, cache, CI, deploy)._

@@ -1,3 +1,14 @@
+/**
+ * Bản rút gọn của `Student` cho các màn hình chỉ cần hiển thị tên/SĐT
+ * (lịch học, điểm danh). Giữ payload bootstrap nhỏ thay vì gửi cả hồ sơ.
+ */
+export interface StudentLite {
+  id: string;
+  name: string;
+  phone: string;
+  avatarUrl?: string;
+}
+
 export type StudentStatus = 'Đang học' | 'Tạm dừng' | 'Đã nghỉ học' | 'Bảo lưu' | 'Đã tốt nghiệp';
 
 export type ExamBlock = 'KHOI_V' | 'KHOI_H';

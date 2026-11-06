@@ -32,3 +32,25 @@ export const DEFAULT_BANK_CONFIG: AdminBankConfig = {
   accountNumber: '0987654321',
   accountName: 'NGUYEN VAN A - ADMIN',
 };
+
+/**
+ * Một lần nhận webhook biến động số dư, lưu lại để chống xử lý trùng.
+ * Khoá chính là `referenceCode` do cổng thanh toán cấp (SePay `referenceCode`,
+ * Casso `transactionId`...), nên hai lần gọi lại cùng một giao dịch chỉ ghi 1 dòng.
+ */
+export interface BankTransaction {
+  /** Mã giao dịch do cổng thanh toán cấp — khoá chống trùng. */
+  referenceCode: string;
+  gateway: string;
+  transferAmount: number;
+  content: string;
+  /** Số tiền đã gạch nợ thực tế (0 nếu không khớp được hoá đơn). */
+  appliedAmount: number;
+  /** Hoá đơn đã xử lý, nối bằng dấu phẩy. */
+  invoiceIds: string;
+  studentId?: string;
+  /** Mã HTTP đã trả cho cổng thanh toán, để gọi lại trả lại đúng kết quả. */
+  resultStatus: number;
+  resultMessage: string;
+  receivedAt?: string;
+}

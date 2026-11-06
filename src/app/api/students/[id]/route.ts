@@ -1,15 +1,23 @@
 import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { StudentService } from '@/services/StudentService';
+import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+  const auth = await authenticate(request, ['ADMIN', 'TEACHER', 'STUDENT']);
+  if (auth.response) return auth.response;
+  if (!isSelfOrStaff(auth.user, id)) {
+    return NextResponse.json({ error: 'Không có quyền xem hồ sơ học viên khác' }, { status: 403 });
+  }
+
   try {
-    const studentId = params.id;
+    const studentId = id;
     const student = await repo.getStudentById(studentId);
     if (!student) {
       return NextResponse.json({ error: 'Không tìm thấy học sinh' }, { status: 404 });
@@ -29,17 +37,40 @@ export async function GET(
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+  const auth = await authenticate(request, ['ADMIN', 'TEACHER', 'STUDENT']);
+  if (auth.response) return auth.response;
+  if (!isSelfOrStaff(auth.user, id)) {
+    return NextResponse.json({ error: 'Không có quyền sửa hồ sơ học viên khác' }, { status: 403 });
+  }
+
   try {
-    const studentId = params.id;
+    const studentId = id;
     const body = await request.json();
+    const full = body;
     const {
       actorId, actorRole, phone, address, name,
       status, homeTown, gradeLevel, targetUniversity, customUniversity, examBlock,
       studyGoal, facebookUrl, otherNotes, registeredDate, parentPhone, assignmentUrl,
-      remainingSessions, totalSessionsInMonth, attendedSessionsInMonth, absentSessionsInMonth
-    } = body;
+      dateOfBirth, gender,
+      remainingSessions, totalSessionsInMonth, attendedSessionsInMonth, absentSessionsInMonth,
+    } = full;
+
+    // Học viên tự sửa hồ sơ: chỉ các trường cá nhân, không đụng hạn mức/học phí/trạng thái.
+    if (auth.user.role === 'STUDENT') {
+      const forbidden = [
+        status, registeredDate, remainingSessions, totalSessionsInMonth,
+        attendedSessionsInMonth, absentSessionsInMonth, actorRole,
+      ];
+      if (forbidden.some((v) => v !== undefined)) {
+        return NextResponse.json(
+          { error: 'Học viên không được sửa trạng thái, hạn mức buổi học hoặc phân quyền' },
+          { status: 403 }
+        );
+      }
+    }
 
     const student = await repo.getStudentById(studentId);
     if (!student) {
@@ -75,6 +106,8 @@ export async function PATCH(
     if (facebookUrl !== undefined) { student.facebookUrl = facebookUrl.trim(); needUpdate = true; }
     if (otherNotes !== undefined) { student.otherNotes = otherNotes.trim(); needUpdate = true; }
     if (parentPhone !== undefined) { student.parentPhone = parentPhone.trim(); needUpdate = true; }
+    if (dateOfBirth !== undefined) { student.dateOfBirth = dateOfBirth; needUpdate = true; }
+    if (gender !== undefined) { student.gender = gender; needUpdate = true; }
     if (assignmentUrl !== undefined) { student.assignmentUrl = assignmentUrl.trim(); needUpdate = true; }
     if (registeredDate !== undefined) { student.registeredDate = registeredDate; needUpdate = true; }
     if (remainingSessions !== undefined) { student.remainingSessions = Number(remainingSessions); needUpdate = true; }

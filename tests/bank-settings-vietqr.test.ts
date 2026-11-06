@@ -4,10 +4,11 @@ import { GET, POST } from '../src/app/api/settings/bank/route';
 import { generateVietQRUrl } from '../src/utils/vietqr';
 import { TuitionPayrollService } from '../src/services/TuitionPayrollService';
 import { LocalRepository } from '../src/repositories/LocalRepository';
+import { authed, sessionCookie } from './helpers/auth';
 
 test('Bank Settings & VietQR Suite: Kiểm tra API cấu hình ngân hàng & helper sinh mã QR', async (t) => {
   await t.test('1. GET /api/settings/bank trả về cấu hình mặc định', async () => {
-    const res = await GET();
+    const res = await GET(authed('http://localhost/api'));
     assert.equal(res.status, 200);
     const data = await res.json();
     assert.equal(data.success, true);
@@ -17,7 +18,7 @@ test('Bank Settings & VietQR Suite: Kiểm tra API cấu hình ngân hàng & hel
   });
 
   await t.test('2. POST /api/settings/bank cập nhật thông tin tài khoản thành công', async () => {
-    const updateReq = new Request('http://localhost:3000/api/settings/bank', {
+    const updateReq = authed('http://localhost:3000/api/settings/bank', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -36,7 +37,7 @@ test('Bank Settings & VietQR Suite: Kiểm tra API cấu hình ngân hàng & hel
     assert.equal(data.bankConfig.accountName, 'TRUNG TAM TOILANING');
 
     // Kiểm tra lại qua GET
-    const resGet = await GET();
+    const resGet = await GET(authed('http://localhost/api'));
     const dataGet = await resGet.json();
     assert.equal(dataGet.bankConfig.bankId, 'VCB');
     assert.equal(dataGet.bankConfig.accountNumber, '1234567890');

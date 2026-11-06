@@ -200,9 +200,9 @@ export default function AdminRequestsPage() {
           action: 'DECIDE',
           requestId: selectedRequest.id,
           status: decisionAction,
-          reviewerId: currentUser?.id || 'ADMIN001',
-          reviewerName: currentUser?.name || 'Ban Giám Hiệu / Quản trị viên',
-          reviewerRole: 'ADMIN',
+
+
+
           reviewNote: decisionNote.trim(),
         }),
       });

@@ -1,6 +1,7 @@
 import { repo } from '@/repositories';
 import { NextResponse } from 'next/server';
 import { AuthService } from '@/services/AuthService';
+import { authenticate } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,6 +12,9 @@ function sanitizeUser<T extends { passwordHash?: string }>(user: T) {
 }
 
 export async function GET(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+
   const { searchParams } = new URL(request.url);
   const role = searchParams.get('role');
   const search = searchParams.get('search')?.toLowerCase();
@@ -37,9 +41,14 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+  const actorId = auth.user.id;
+  const actorName = auth.user.name;
+
   try {
     const body = await request.json();
-    const { userId, newPassword, newName, isActive, actorId = 'ADMIN001' } = body;
+    const { userId, newPassword, newName, isActive } = body;
 
     if (!userId) {
       return NextResponse.json({ error: 'Thiếu thông tin userId' }, { status: 400 });
@@ -112,9 +121,14 @@ export async function PUT(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+  const actorId = auth.user.id;
+  const actorName = auth.user.name;
+
   try {
     const body = await request.json();
-    const { username, name, role = 'STUDENT', password = 'password123', actorId = 'ADMIN001' } = body;
+    const { username, name, role = 'STUDENT', password = 'password123' } = body;
 
     if (!username || !name) {
       return NextResponse.json({ error: 'Vui lòng nhập tên đăng nhập và họ tên' }, { status: 400 });
@@ -227,17 +241,20 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+  const actorId = auth.user.id;
+  const actorName = auth.user.name;
+
   try {
     const { searchParams } = new URL(request.url);
     let userId = searchParams.get('id') || searchParams.get('userId');
-    let actorId = searchParams.get('actorId') || 'ADMIN001';
 
     // Trường hợp gửi qua JSON body
     if (!userId && request.headers.get('content-type')?.includes('application/json')) {
       try {
         const body = await request.json();
         userId = body.userId || body.id;
-        actorId = body.actorId || actorId;
       } catch (e) {
         // bỏ qua lỗi parse json nếu rỗng
       }

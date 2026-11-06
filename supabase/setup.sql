@@ -201,6 +201,20 @@ create table if not exists public.tuition_invoices (
     constraint tuition_invoices_payment_method_check check (payment_method is null or payment_method in ('Chuyển khoản QR', 'Tiền mặt', 'Thẻ ngân hàng'))
 );
 
+-- Sổ giao dịch ngân hàng: khoá chống xử lý trùng webhook thanh toán
+create table if not exists public.bank_transactions (
+    reference_code  varchar(120)   primary key,
+    gateway         varchar(60)    not null default 'BANK_GATEWAY',
+    transfer_amount numeric(14,2)  not null default 0,
+    content         text,
+    applied_amount  numeric(14,2)  not null default 0,
+    invoice_ids     text,
+    student_id      varchar(50),
+    result_status   integer        not null default 0,
+    result_message  text,
+    received_at     timestamptz    not null default now()
+);
+
 -- Bảng lương giáo viên theo tháng
 create table if not exists public.teacher_payroll_periods (
     id          varchar(50) primary key,
@@ -514,6 +528,20 @@ create trigger trg_sync_student_to_user
     after update of name on public.students
     for each row execute function public.sync_profile_to_user();
 
+-- Hàm sinh mã ca học: max số trong 'SCHxxxx' mà không phải đọc cả bảng.
+create or replace function public.max_schedule_slot_number()
+returns integer
+language sql
+stable
+as $$
+    select coalesce(max(substring(id from 4)::integer), 0)
+      from public.schedule_slots
+     where id ~ '^SCH[0-9]+$';
+$$;
+
+revoke all on function public.max_schedule_slot_number() from anon, authenticated;
+grant execute on function public.max_schedule_slot_number() to service_role;
+
 -- ============================================================================
 -- 6. ROW LEVEL SECURITY
 -- Bật RLS, không tạo policy: service_role (backend) vẫn chạy bình thường,
@@ -534,6 +562,7 @@ alter table public.audit_logs             enable row level security;
 alter table public.notifications          enable row level security;
 alter table public.session_packages       enable row level security;
 alter table public.time_shifts            enable row level security;
+alter table public.bank_transactions      enable row level security;
 
 -- ============================================================================
 -- 7. DỮ LIỆU DANH MỤC NỀN

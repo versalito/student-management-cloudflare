@@ -1,11 +1,16 @@
 import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
+import { MAX_STUDENT_PAGE_LIMIT } from '@/repositories/IRepository';
 import { StudentService } from '@/services/StudentService';
+import { authenticate } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
 
 export async function GET(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','TEACHER','STUDENT']);
+  if (auth.response) return auth.response;
+
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
   const search = searchParams.get('search')?.toLowerCase();
@@ -13,8 +18,12 @@ export async function GET(request: Request) {
   const uni = searchParams.get('uni');
   const limitParam = searchParams.get('limit');
   const page = parseInt(searchParams.get('page') || '1', 10);
-  // limit=all dùng cho các ô chọn học sinh (hoá đơn, đơn từ) cần đủ danh sách.
-  const limit = limitParam === 'all' ? Number.MAX_SAFE_INTEGER : parseInt(limitParam || '50', 10);
+  // limit=all dùng cho các ô chọn học sinh (hoá đơn, đơn từ) cần đủ danh sách,
+  // nhưng vẫn bị chặn trần: một request không được kéo cả bảng (và bỏ `range()`).
+  const parsedLimit = parseInt(limitParam || '50', 10);
+  const limit = limitParam === 'all'
+    ? MAX_STUDENT_PAGE_LIMIT
+    : Math.min(MAX_STUDENT_PAGE_LIMIT, Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 50);
 
   if (id) {
     try {
@@ -47,7 +56,7 @@ export async function GET(request: Request) {
       students,
       total,
       page,
-      totalPages: limitParam === 'all' ? 1 : Math.ceil(total / limit),
+      totalPages: Math.max(1, Math.ceil(total / limit)),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Lỗi khi tải danh sách học viên';
@@ -56,6 +65,11 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+  const actorId = auth.user.id;
+  const actorName = auth.user.name;
+
   try {
     const body = await request.json();
     const {
@@ -66,7 +80,6 @@ export async function POST(request: Request) {
       address,
       enrolledClassIds = [],
       fastOnboarding = false,
-      actorId = 'ADMIN001',
       actorName = 'Quản trị viên',
       homeTown,
       gradeLevel = 'Lớp 12',
@@ -93,6 +106,7 @@ export async function POST(request: Request) {
       phone: phone || '',
       actorId,
       actorName,
+      actorRole: auth.user.role,
     });
 
     const student = result.student;
@@ -153,6 +167,9 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -186,7 +203,7 @@ export async function DELETE(request: Request) {
 
     await repo.addAuditLog({
       action: 'DELETE',
-      userId: 'ADMIN001',
+      userId: auth.user.id,
       userName: 'Quản trị viên',
       userRole: 'ADMIN',
       targetResource: 'STUDENT',

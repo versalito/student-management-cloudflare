@@ -116,7 +116,7 @@ export default function TeacherClassesPage() {
           sectionId: item.section.id,
           teacherId: currentUser.id,
           syncFutureSlots: true,
-          actorId: currentUser.id,
+
         }),
       });
       const data = await res.json();

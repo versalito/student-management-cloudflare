@@ -51,7 +51,7 @@ export class BulkScheduleService {
       endTime: overrideEndTime,
       scheduleDays: overrideScheduleDays,
       overwriteExisting = false,
-      actorId = 'ADMIN001',
+      actorId = 'SYSTEM',
       previewOnly = false,
     } = params;
 
@@ -114,10 +114,7 @@ export class BulkScheduleService {
 
     // Lấy trước max id của ScheduleSlot để sinh ID tăng dần duy nhất
     const initialSlots = await this.repo.getAllScheduleSlots();
-    let maxNum = initialSlots.reduce((max, s) => {
-      const match = String(s.id || '').match(/^SCH(\d+)$/i);
-      return match ? Math.max(max, Number(match[1])) : max;
-    }, 0);
+    let maxNum = await this.repo.getMaxScheduleSlotNumber();
 
     // Chuẩn bị danh sách ngày từ startDate đến endDate
     const dateList: string[] = [];
@@ -286,7 +283,7 @@ export class BulkScheduleService {
       await this.repo.addAuditLog({
         action: 'CREATE',
         userId: actorId,
-        userName: actorId === 'ADMIN001' ? 'Quản trị viên' : actorId,
+        userName: actorId === 'SYSTEM' ? 'Hệ thống' : actorId,
         userRole: 'ADMIN',
         targetResource: 'SCHEDULE',
         targetId: 'BULK_GENERATE',

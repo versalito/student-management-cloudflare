@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { ScheduleSlot } from '@/types/schedule';
 import { AttendanceRecord } from '@/types/attendance';
+import { authenticate } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +17,9 @@ export interface StudentAttendanceDetail {
 }
 
 export async function GET(request: Request) {
+  const auth = await authenticate(request, ['ADMIN', 'TEACHER']);
+  if (auth.response) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const dateParam = searchParams.get('date');
@@ -31,7 +35,7 @@ export async function GET(request: Request) {
       hour12: false
     }).format(now);
 
-    let slots = await repo.getAllScheduleSlots();
+    const slots = await repo.getAllScheduleSlots();
     // Lọc theo ngày
     let daySlots = slots.filter(s => s.date === today);
 

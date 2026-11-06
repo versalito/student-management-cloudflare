@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { POST } from '../src/app/api/payment/webhook/route';
 import { repo } from '../src/repositories';
 import { TuitionInvoice } from '../src/types/finance';
+import { authed, sessionCookie } from './helpers/auth';
 
 test('Bank Payment Webhook & Reconciliation Suite: Kiểm tra phân hệ gạch nợ tự động', async (t) => {
   // Chuẩn bị dữ liệu mẫu cho test suite
@@ -39,7 +40,7 @@ test('Bank Payment Webhook & Reconciliation Suite: Kiểm tra phân hệ gạch 
   await repo.createTuitionInvoice(initialInv2);
 
   await t.test('1. POST /api/payment/webhook từ chối nếu số tiền <= 0 hoặc payload thiếu', async () => {
-    const req = new Request('http://localhost:3000/api/payment/webhook', {
+    const req = authed('http://localhost:3000/api/payment/webhook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -57,7 +58,7 @@ test('Bank Payment Webhook & Reconciliation Suite: Kiểm tra phân hệ gạch 
   });
 
   await t.test('2. POST /api/payment/webhook bỏ qua giao dịch chuyển tiền đi (transferType = out)', async () => {
-    const req = new Request('http://localhost:3000/api/payment/webhook', {
+    const req = authed('http://localhost:3000/api/payment/webhook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -75,7 +76,7 @@ test('Bank Payment Webhook & Reconciliation Suite: Kiểm tra phân hệ gạch 
   });
 
   await t.test('3. Webhook chuyển khoản đúng mã hóa đơn (TUI_TEST_001) -> Gạch nợ thành công, chuyển sang Đã nộp', async () => {
-    const req = new Request('http://localhost:3000/api/payment/webhook', {
+    const req = authed('http://localhost:3000/api/payment/webhook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -108,7 +109,7 @@ test('Bank Payment Webhook & Reconciliation Suite: Kiểm tra phân hệ gạch 
   });
 
   await t.test('4. Webhook chuyển khoản thiếu tiền (Partial payment) -> Giảm remainingAmount, giữ trạng thái Còn nợ', async () => {
-    const req = new Request('http://localhost:3000/api/payment/webhook', {
+    const req = authed('http://localhost:3000/api/payment/webhook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -138,7 +139,7 @@ test('Bank Payment Webhook & Reconciliation Suite: Kiểm tra phân hệ gạch 
   });
 
   await t.test('5. Webhook chuyển khoản theo Mã SV (ST_TEST_001) -> Tự động tìm hóa đơn còn nợ và gạch nợ (FIFO)', async () => {
-    const req = new Request('http://localhost:3000/api/payment/webhook', {
+    const req = authed('http://localhost:3000/api/payment/webhook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -179,7 +180,7 @@ test('Bank Payment Webhook & Reconciliation Suite: Kiểm tra phân hệ gạch 
   });
 
   await t.test('7. Webhook trả về 404 nếu không tìm thấy mã hóa đơn hoặc sinh viên phù hợp trong nội dung', async () => {
-    const req = new Request('http://localhost:3000/api/payment/webhook', {
+    const req = authed('http://localhost:3000/api/payment/webhook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -197,5 +198,74 @@ test('Bank Payment Webhook & Reconciliation Suite: Kiểm tra phân hệ gạch 
     const data = await res.json();
     assert.equal(data.success, false);
     assert.ok(data.message.includes('Không tìm thấy'));
+  });
+
+  await t.test('8. Bắt buộc secret khi BANK_WEBHOOK_SECRET được cấu hình', async () => {
+    const secret = 'test-webhook-secret-0123456789abcdef';
+    process.env.BANK_WEBHOOK_SECRET = secret;
+    try {
+      const payload = JSON.stringify({
+        gateway: 'SePay',
+        transferType: 'in',
+        transferAmount: 100000,
+        referenceCode: 'TXN_NO_SECRET_01',
+        content: `Nop tien ${inv2Id}`,
+      });
+
+      const withoutSecret = authed('http://localhost:3000/api/payment/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+      });
+      const rejected = await POST(withoutSecret);
+      assert.equal(rejected.status, 401);
+      assert.equal((await rejected.json()).success, false);
+
+      const wrongSecret = authed('http://localhost:3000/api/payment/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-webhook-secret': 'sai-secret' },
+        body: payload,
+      });
+      assert.equal((await POST(wrongSecret)).status, 401);
+
+      const withSecret = authed('http://localhost:3000/api/payment/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-webhook-secret': secret },
+        body: payload,
+      });
+      assert.equal((await POST(withSecret)).status, 200);
+    } finally {
+      delete process.env.BANK_WEBHOOK_SECRET;
+    }
+  });
+
+  await t.test('9. Gửi lại cùng referenceCode không gạch nợ lần hai', async () => {
+    // inv1 đang "Đã nộp"; gửi lại đúng giao dịch đã xử lý ở test 3.
+    const replay = authed('http://localhost:3000/api/payment/webhook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        gateway: 'SePay',
+        transferType: 'in',
+        transferAmount: 2000000,
+        referenceCode: 'TXN_TEST_FULL_01',
+        content: `Nop tien hoc phi ${inv1Id}`,
+      }),
+    });
+
+    const res = await POST(replay);
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.duplicate, true);
+    assert.equal(data.appliedAmount, 2000000);
+
+    const unchanged = await repo.getTuitionInvoiceById(inv1Id);
+    assert.ok(unchanged);
+    assert.equal(unchanged.paidAmount, 2000000, 'số tiền đã nộp không được cộng thêm');
+
+    const ledger = await repo.getBankTransaction('TXN_TEST_FULL_01');
+    assert.ok(ledger);
+    assert.equal(ledger.invoiceIds, inv1Id);
+    assert.equal(ledger.resultStatus, 200);
   });
 });

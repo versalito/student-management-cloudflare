@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { ScheduleSlot, TeacherCheckinStatus } from '@/types/schedule';
 import { getTodayDateStr, getNowTimeStr, timeToMinutes } from '@/utils/date';
+import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,11 +27,19 @@ function isValidHHmm(value: string): boolean {
  * Trả về danh sách ca kèm trạng thái chấm công để dựng sổ chấm công.
  */
 export async function GET(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','TEACHER']);
+  if (auth.response) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const teacherId = searchParams.get('teacherId');
     const month = searchParams.get('month');
     const date = searchParams.get('date');
+
+    // Giáo viên chỉ xem chấm công của chính mình.
+    if (auth.user.role === 'TEACHER' && !isSelfOrStaff(auth.user, teacherId)) {
+      return NextResponse.json({ success: false, error: 'Không có quyền xem chấm công của giáo viên khác' }, { status: 403 });
+    }
 
     let slots: ScheduleSlot[] = teacherId
       ? await repo.getScheduleSlotsByTeacherId(teacherId)
@@ -61,6 +70,9 @@ export async function GET(request: Request) {
  * - action 'ADMIN_SET': admin chấm bù / chỉnh tay cho bất kỳ ca nào.
  */
 export async function POST(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','TEACHER']);
+  if (auth.response) return auth.response;
+
   try {
     const body = await request.json();
     const action = body.action || 'CHECKIN';
@@ -81,6 +93,12 @@ export async function POST(request: Request) {
 
     // --- Admin chấm bù / chỉnh tay ---
     if (action === 'ADMIN_SET') {
+      if (auth.user.role !== 'ADMIN') {
+        return NextResponse.json(
+          { success: false, error: 'Chỉ quản trị viên được chấm công bù' },
+          { status: 403 }
+        );
+      }
       const checkinTime = (body.checkinTime || '').trim();
       const checkoutTime = (body.checkoutTime || '').trim();
       if (checkinTime && !isValidHHmm(checkinTime)) {
@@ -117,9 +135,9 @@ export async function POST(request: Request) {
 
       const saved = await repo.updateScheduleSlot(slot);
       await repo.addAuditLog({
-        userId: body.actorId || 'ADMIN001',
-        userName: body.actorName || 'Quản trị viên',
-        userRole: 'ADMIN',
+        userId: auth.user.id,
+        userName: auth.user.name,
+        userRole: auth.user.role,
         action: 'UPDATE',
         targetResource: 'SCHEDULE',
         targetId: slot.id,
@@ -137,9 +155,13 @@ export async function POST(request: Request) {
     }
 
     // --- Giáo viên tự chấm công ---
-    const teacherId = body.teacherId;
+    const teacherId = body.teacherId || auth.user.id;
     if (!teacherId) {
       return NextResponse.json({ success: false, error: 'Thiếu mã giáo viên' }, { status: 400 });
+    }
+    // Giáo viên chỉ tự chấm công cho ca của mình.
+    if (!isSelfOrStaff(auth.user, teacherId)) {
+      return NextResponse.json({ success: false, error: 'Không có quyền chấm công cho giáo viên khác' }, { status: 403 });
     }
     if (slot.teacherId !== teacherId) {
       return NextResponse.json(

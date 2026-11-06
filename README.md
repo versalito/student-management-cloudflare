@@ -2,11 +2,14 @@
 
 Hệ thống quản lý trung tâm dạy học: điểm danh, lớp học, lịch học, học sinh, giáo viên và học phí. Chạy trên Cloudflare Workers (Next.js qua OpenNext), dữ liệu trên Supabase Postgres.
 
+- Production: https://student-management-cloudflare.design-toilaning.workers.dev
+- Repo: https://github.com/versalito/student-management-cloudflare
+
 ## Có gì trong này
 
-Ba cổng giao diện riêng:
+Ba cổng giao diện riêng, mỗi cổng chặn bằng middleware theo role trong cookie phiên:
 
-- **Admin** (`/admin`): toàn trường — tài khoản, học sinh, giáo viên, lớp, lịch, điểm danh, yêu cầu, học phí, chấm công, phân quyền.
+- **Admin** (`/admin`): toàn trường — tài khoản, học sinh, giáo viên, lớp, lịch, điểm danh, yêu cầu, học phí, chấm công, audit.
 - **Giáo viên** (`/teacher`): lớp đang dạy, điểm danh lớp mình, chấm công theo ca, lịch dạy.
 - **Học sinh** (`/student`): điểm danh nhanh, lịch học, lớp, học phí, yêu cầu.
 
@@ -14,7 +17,7 @@ Ba cổng giao diện riêng:
 
 ```bash
 npm install
-cp .env.example .env.local   # điền SUPABASE_URL và SUPABASE_SERVICE_ROLE_KEY
+cp .env.example .env.local   # điền SUPABASE_URL và SUPABASE_SERVICE_ROLE_KEY nếu dùng Supabase
 npm run dev                  # http://localhost:3000
 ```
 
@@ -26,43 +29,78 @@ Biến môi trường chính:
 |------|---------|
 | `DATA_SOURCE` | `local` (in-memory) hoặc `supabase` (production) |
 | `SUPABASE_URL` | URL project Supabase |
-| `SUPABASE_SERVICE_ROLE_KEY` | Khóa server-side, chỉ dùng ở phía server |
+| `SUPABASE_SERVICE_ROLE_KEY` | Khóa server-side, chỉ dùng ở phía server (bỏ trống thì đọc/ghi Supabase lỗi) |
+| `SESSION_SECRET` | Ký cookie phiên, **≥ 32 ký tự**. Thiếu ở production → login trả 500 |
+| `BANK_WEBHOOK_SECRET` | Secret chia sẻ với cổng thanh toán, **≥ 32 ký tự**. Trống → webhook từ chối toàn bộ |
+
+Ba secret cuối không đặt trong `wrangler.toml`; production nạp bằng `wrangler secret put <TÊN>`, local bằng `.dev.vars`.
+
+## Bảo mật
+
+- **Phiên**: cookie `smc_session` = `payload.base64url.sig`, ký HMAC-SHA-256 bằng WebCrypto trên `SESSION_SECRET`; `HttpOnly`, `SameSite=Lax`, `Secure` khi production, TTL 8 giờ.
+- **Phân quyền**: mỗi API route gọi `authenticate(request, roles)`; `src/middleware.ts` chặn `/admin`, `/teacher`, `/student` trước khi render.
+- **Rate limit login**: đếm theo username+IP trong KV `RATE_LIMIT_KV` (fallback bộ nhớ isolate nếu thiếu binding).
+- **Webhook ngân hàng**: bắt buộc `x-webhook-secret` / `Authorization: Bearer` / `secure-token` khớp `BANK_WEBHOOK_SECRET`; mỗi `referenceCode` ghi một lần vào `bank_transactions` nên retry của cổng thanh toán không cộng tiền lần hai.
+- **RLS**: `supabase/rls_lockdown.sql` chặn `anon`/`authenticated` trên mọi bảng, backend dùng `service_role`. Kiểm chứng: `node scripts/verify-rls.mjs`.
+- **Cache-Control**: HTML và API `private, no-store`; `/_next/static/*` immutable 1 năm (xem `public/_headers`).
 
 ## Cơ sở dữ liệu
 
-- `supabase/setup.sql` — script duy nhất để dựng database. Mở Supabase Dashboard → SQL Editor → dán toàn bộ file → Run.
+- `supabase/setup.sql` — dựng database từ đầu (bảng, ràng buộc, index, trigger đồng bộ users/teachers/students, RLS, dữ liệu nền).
+- `supabase/rls_lockdown.sql` — khoá quyền `anon`/`authenticated` trên toàn bộ bảng.
+- `supabase/migration_*.sql`, `supabase/update_*.sql` — bản vá tăng dần, chạy một lần trong SQL Editor.
 
-Script chạy được nhiều lần trên cùng một database: database trống thì tạo mới, database đang chạy thì chỉ bổ sung phần còn thiếu và không xoá dữ liệu. Nó tạo đủ bảng, ràng buộc, index, trigger đồng bộ users/teachers/students, bật RLS cho mọi bảng và nạp sẵn danh mục nền (ca làm việc, gói combo, phòng học).
-
-Không có dữ liệu mẫu trong repo. Sau khi chạy `setup.sql`, tạo tài khoản quản trị đầu tiên bằng câu lệnh SQL ở cuối file hoặc qua Supabase Auth rồi thêm bản ghi vào bảng `users`.
+Tất cả script đều idempotent: chạy lại không mất dữ liệu.
 
 ## Kiểm tra
 
 ```bash
-npm test                      # node:test
-./node_modules/.bin/tsc --noEmit
-npm run build
+npm test          # node:test trên LocalRepository → 147 test
+npx tsc --noEmit  # typecheck
+npm run lint      # eslint, --max-warnings=367 (nợ hiện tại, không tăng)
+npm run build     # build Next.js
 ```
+
+Đo hồi quy hiệu năng (bắt buộc server đang chạy và có tài khoản admin):
+
+```bash
+./scripts/perf-probe.sh http://127.0.0.1:3000 20 800
+```
+
+Script đăng nhập lấy cookie, warm-up rồi đo p50/p95 từng endpoint, exit 1 nếu p95 vượt ngưỡng ms truyền vào.
+
+CI (`.github/workflows/ci.yml`) chạy 2 job: `verify` (tsc → test → lint → build) và `perf` (build → start → perf-probe với ngưỡng 800 ms).
 
 ## Deploy
 
 ```bash
-npm run deploy                # opennextjs-cloudflare build + wrangler deploy
+npm run deploy    # opennextjs-cloudflare build + wrangler deploy
 ```
 
-Cấu hình Worker ở `wrangler.toml`.
+Lần đầu trên một tài khoản Cloudflare mới:
+
+```bash
+wrangler kv namespace create RATE_LIMIT_KV   # rồi dán id vào wrangler.toml
+wrangler secret put SESSION_SECRET
+wrangler secret put BANK_WEBHOOK_SECRET
+wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+```
+
+Cấu hình Worker ở `wrangler.toml`: `[observability] enabled = true` để log hiện trong Dashboard, `[placement] mode = "smart"` để Worker đặt gần Supabase.
 
 ## Cấu trúc thư mục
 
 ```
 src/app/            route theo cổng (admin / teacher / student / api)
 src/components/     UI dùng chung và theo domain
+src/lib/            auth (session), cache (referenceCache), bank (webhookAuth), supabase
+src/middleware.ts   chặn route theo role
 src/services/       logic nghiệp vụ
 src/repositories/   truy cập dữ liệu (local / supabase)
 src/types/          kiểu dữ liệu
 supabase/           schema, migrations
-docs/archive/       đặc tả tính năng cũ
-tests/              test
+scripts/            perf-probe, verify-rls, reconcile-profiles, audit-slot-weekdays
+tests/              test (node:test)
 ```
 
 Đặc tả kiến trúc chi tiết: [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).

@@ -5,6 +5,7 @@ import { GET as getShifts, PUT as updateShift, POST as createShift, DELETE as de
 import { POST as enrollClass } from '../src/app/api/classes/enroll/route';
 import { PUT as updateClassTeacher } from '../src/app/api/classes/route';
 import { repo } from '../src/repositories';
+import { authed, authedAsStudent, sessionCookie } from './helpers/auth';
 
 describe('Dynamic Shifts & Schedule Box Suite', () => {
   it('1. Đọc danh sách ca học mặc định từ ShiftService', async () => {
@@ -18,7 +19,7 @@ describe('Dynamic Shifts & Schedule Box Suite', () => {
 
   it('2. API GET /api/shifts trả về danh sách ca học', async () => {
     await ShiftService.resetDefaults();
-    const res = await getShifts();
+    const res = await getShifts(authed('http://localhost/api/shifts'));
     const data = await res.json();
     assert.ok(data.success);
     assert.ok(Array.isArray(data.shifts));
@@ -26,7 +27,7 @@ describe('Dynamic Shifts & Schedule Box Suite', () => {
   });
 
   it('3. API PUT /api/shifts cập nhật khung giờ ca học (sửa Ca 1 thành 08:30 - 10:30)', async () => {
-    const req = new Request('http://localhost/api/shifts', {
+    const req = authed('http://localhost/api/shifts', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -48,7 +49,7 @@ describe('Dynamic Shifts & Schedule Box Suite', () => {
   });
 
   it('4. API POST /api/shifts thêm ca học mới (Ca 6)', async () => {
-    const req = new Request('http://localhost/api/shifts', {
+    const req = authed('http://localhost/api/shifts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -81,7 +82,7 @@ describe('Dynamic Shifts & Schedule Box Suite', () => {
 
     // 6.0 Dữ liệu seed: ST002 đang học CLS01 (Toán, Thứ 2-4-6, Ca 1) trùng giờ với CLS02.
     // Trước khi đăng ký ca mới, hủy lớp trùng giờ hiện tại để giải phóng lịch.
-    const reqUnenrollConflicting = new Request('http://localhost/api/classes/enroll', {
+    const reqUnenrollConflicting = authed('http://localhost/api/classes/enroll', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -94,7 +95,7 @@ describe('Dynamic Shifts & Schedule Box Suite', () => {
     await enrollClass(reqUnenrollConflicting);
 
     // 6.1 Ghi danh / Chọn ca này
-    const reqEnroll = new Request('http://localhost/api/classes/enroll', {
+    const reqEnroll = authed('http://localhost/api/classes/enroll', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -112,7 +113,7 @@ describe('Dynamic Shifts & Schedule Box Suite', () => {
     assert.ok(updatedCls?.studentIds.includes(testStudentId), 'Học viên phải có trong danh sách studentIds của lớp');
 
     // 6.2 Hủy ca / Đổi ca khác
-    const reqUnenroll = new Request('http://localhost/api/classes/enroll', {
+    const reqUnenroll = authed('http://localhost/api/classes/enroll', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -133,15 +134,13 @@ describe('Dynamic Shifts & Schedule Box Suite', () => {
   it('6b. Học sinh tự đăng ký ca TRÙNG GIỜ với lớp đã enrolled vẫn được phép', async () => {
     const testStudentId = 'ST003';
     // ST003 theo seed học CLS01 (Toán, Thứ 2-4-6, Ca 1). CLS02 (Tiếng Anh) trùng ngày + trùng giờ.
-    const reqEnroll = new Request('http://localhost/api/classes/enroll', {
+    const reqEnroll = authedAsStudent(testStudentId)('http://localhost/api/classes/enroll', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         classId: 'CLS02',
         studentId: testStudentId,
         action: 'ENROLL',
-        actorId: testStudentId,
-        actorRole: 'STUDENT',
       }),
     });
     const resEnroll = await enrollClass(reqEnroll);
@@ -153,7 +152,7 @@ describe('Dynamic Shifts & Schedule Box Suite', () => {
     assert.ok(cls?.studentIds.includes(testStudentId), 'Học viên phải được thêm vào lớp');
 
     // Dọn dẹp để không ảnh hưởng các test sau.
-    const cleanup = new Request('http://localhost/api/classes/enroll', {
+    const cleanup = authedAsStudent(testStudentId)('http://localhost/api/classes/enroll', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ classId: 'CLS02', studentId: testStudentId, action: 'UNENROLL' }),
@@ -164,7 +163,7 @@ describe('Dynamic Shifts & Schedule Box Suite', () => {
   it('6c. Quản trị viên vẫn bị chặn khi thêm học viên vào lớp TRÙNG GIỜ', async () => {
     const testStudentId = 'ST004';
     // ST004 theo seed học CLS01 (Toán, Thứ 2-4-6, Ca 1). CLS02 (Tiếng Anh) trùng ngày + trùng giờ.
-    const reqEnroll = new Request('http://localhost/api/classes/enroll', {
+    const reqEnroll = authed('http://localhost/api/classes/enroll', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -187,7 +186,7 @@ describe('Dynamic Shifts & Schedule Box Suite', () => {
     const testClassId = 'CLS03';
     const newTeacherId = 'GV003';
 
-    const reqClaim = new Request('http://localhost/api/classes', {
+    const reqClaim = authed('http://localhost/api/classes', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -208,7 +207,7 @@ describe('Dynamic Shifts & Schedule Box Suite', () => {
   });
 
   it('8. Thêm ca 7 động và kiểm tra số lượng ca tăng lên', async () => {
-    const req = new Request('http://localhost/api/shifts', {
+    const req = authed('http://localhost/api/shifts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -228,7 +227,7 @@ describe('Dynamic Shifts & Schedule Box Suite', () => {
 
   it('9. API DELETE /api/shifts xóa ca học và kiểm tra số lượng ca giảm', async () => {
     // Xóa Ca 6
-    const reqDelete6 = new Request('http://localhost/api/shifts?id=6', {
+    const reqDelete6 = authed('http://localhost/api/shifts?id=6', {
       method: 'DELETE',
     });
     const resDelete6 = await deleteShift(reqDelete6);
@@ -236,7 +235,7 @@ describe('Dynamic Shifts & Schedule Box Suite', () => {
     assert.ok(dataDelete6.success);
 
     // Xóa Ca 5
-    const reqDelete5 = new Request('http://localhost/api/shifts?id=5', {
+    const reqDelete5 = authed('http://localhost/api/shifts?id=5', {
       method: 'DELETE',
     });
     const resDelete5 = await deleteShift(reqDelete5);

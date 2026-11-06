@@ -77,9 +77,9 @@ export default function TeacherRequestsPage() {
           action: 'DECIDE',
           requestId,
           status,
-          reviewerId: currentUser?.id || '',
-          reviewerRole: 'TEACHER',
-          reviewerName: currentUser?.name || '',
+
+
+
           reviewNote:
             note !== undefined && note.trim() !== ''
               ? note.trim()

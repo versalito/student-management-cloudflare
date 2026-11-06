@@ -5,6 +5,14 @@ import { AuthService } from './AuthService';
 
 import { MonthlyPackageService } from './MonthlyPackageService';
 
+export interface StudentActor {
+  id: string;
+  name: string;
+  role: string;
+}
+
+const SYSTEM_ACTOR: StudentActor = { id: 'SYSTEM', name: 'Hệ thống', role: 'SYSTEM' };
+
 export class StudentService {
   constructor(private repo: IRepository) {}
 
@@ -48,8 +56,15 @@ export class StudentService {
     phone?: string;
     actorId?: string;
     actorName?: string;
+    actorRole?: string;
   }): Promise<{ student: Student; defaultPassword: string }> {
-    const { name, phone = '', actorId = 'ADMIN001', actorName = 'Quản trị viên' } = params;
+    const {
+      name,
+      phone = '',
+      actorId = SYSTEM_ACTOR.id,
+      actorName = SYSTEM_ACTOR.name,
+      actorRole = SYSTEM_ACTOR.role,
+    } = params;
 
     if (!name || !name.trim()) {
       throw new Error('Họ và tên học sinh là bắt buộc');
@@ -90,7 +105,7 @@ export class StudentService {
       action: 'CREATE',
       userId: actorId,
       userName: actorName,
-      userRole: 'ADMIN',
+      userRole: actorRole,
       targetResource: 'STUDENT',
       targetId: studentId,
       details: `Tạo nhanh học sinh mới [${studentId}] - ${name.trim()}`,
@@ -105,7 +120,8 @@ export class StudentService {
   public static async updateStudentStatus(
     studentId: string,
     status: 'Đang học' | 'Tạm dừng' | 'Đã nghỉ học',
-    reason?: string
+    reason?: string,
+    actor: StudentActor = SYSTEM_ACTOR
   ): Promise<{ student: any; dropoutAudit?: any }> {
     const student = await repo.getStudentById(studentId);
     if (!student) throw new Error('Không tìm thấy học sinh ' + studentId);
@@ -141,9 +157,9 @@ export class StudentService {
 
     await repo.addAuditLog({
       action: 'UPDATE',
-      userId: 'ADMIN001',
-      userName: 'Quản trị viên',
-      userRole: 'ADMIN',
+      userId: actor.id,
+      userName: actor.name,
+      userRole: actor.role,
       targetResource: 'STUDENT',
       targetId: studentId,
       details: 'Thay đổi trạng thái học sinh ' + studentId + ' (' + student.name + ') từ ' + oldStatus + ' -> ' + status + '. Lý do: ' + (reason || 'Không ghi chú'),

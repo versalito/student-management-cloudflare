@@ -4,13 +4,19 @@ import { POST as enrollClass } from '../src/app/api/classes/enroll/route';
 import { repo } from '../src/repositories';
 import { ShiftService } from '../src/services/ShiftService';
 import { ClassEntity, ClassSection } from '../src/types/classroom';
+import { authed, authedAsStudent, sessionCookie, studentSession } from './helpers/auth';
 
-function enrollRequest(payload: Record<string, unknown>): Request {
-  return new Request('http://localhost/api/classes/enroll', {
+function enrollRequest(
+  payload: Record<string, unknown>,
+  init: { user?: { id: string; role: 'ADMIN' | 'TEACHER' | 'STUDENT'; username: string; name: string } } = {}
+): Request {
+  const url = 'http://localhost/api/classes/enroll';
+  const init2: RequestInit = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  });
+  };
+  return init.user ? authed(url, init2, init.user) : authed(url, init2);
 }
 
 /** Tạo một lớp với 2 ca học A và B (cùng lớp, hai khung giờ khác nhau). */
@@ -163,9 +169,7 @@ describe('Học sinh đổi ca học (cơ chế section trong lớp)', () => {
         studentId,
         action: 'CHANGE_SHIFT',
         targetSectionId: secB.id,
-        actorId: studentId,
-        actorRole: 'STUDENT',
-      })
+      }, { user: studentSession(studentId) })
     );
     const data = await res.json();
     assert.equal(res.status, 200, 'Học sinh tự đổi ca trùng giờ không bị chặn: ' + JSON.stringify(data));

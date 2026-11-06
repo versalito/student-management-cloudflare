@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { AuthService } from '@/services/AuthService';
+import { authenticate } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +10,9 @@ export const dynamic = 'force-dynamic';
  * Bắt buộc nhập đúng mật khẩu hiện tại, để người khác không đổi được khi máy đang mở.
  */
 export async function PUT(request: Request) {
+  const auth = await authenticate(request, ['ADMIN','TEACHER','STUDENT']);
+  if (auth.response) return auth.response;
+
   try {
     const body = await request.json();
     const { userId, currentPassword, newPassword } = body || {};

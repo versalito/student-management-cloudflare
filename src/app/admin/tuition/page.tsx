@@ -190,8 +190,8 @@ export default function AdminTuitionPage() {
         price: Number(pkgPrice),
         isActive: pkgIsActive,
         description: pkgDescription,
-        actorId: 'ADMIN001',
-        actorName: 'Quản trị viên',
+
+
       };
       if (isEdit && editingPackage) {
         bodyPayload.id = editingPackage.id;
@@ -225,8 +225,8 @@ export default function AdminTuitionPage() {
         body: JSON.stringify({
           id: pkg.id,
           isActive: !pkg.isActive,
-          actorId: 'ADMIN001',
-          actorName: 'Quản trị viên',
+
+
         }),
       });
       const data = await res.json();
@@ -243,7 +243,7 @@ export default function AdminTuitionPage() {
     if (!deletingPackage) return;
     setIsDeletingPkg(true);
     try {
-      const res = await fetch('/api/packages?id=' + deletingPackage.id + '&actorId=ADMIN001', {
+      const res = await fetch('/api/packages?id=' + deletingPackage.id, {
         method: 'DELETE',
       });
       const data = await res.json();
@@ -316,8 +316,8 @@ export default function AdminTuitionPage() {
           transactionCode: updateStatus === 'Đã nộp' ? (updatingInvoice.transactionCode || 'MANUAL-' + Date.now()) : undefined,
           reason: updateNotes.trim() || undefined,
           note: updateNotes.trim() || undefined,
-          actorId: 'ADMIN001',
-          actorName: 'Quản trị viên',
+
+
         }),
       });
 
@@ -1115,7 +1115,7 @@ export default function AdminTuitionPage() {
           {viewingQrInvoice && (
             <div className="space-y-4">
               <div className="rounded-card border border-line bg-muted p-4 flex justify-center">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
+                { }
                 <img
                   src={generateVietQRUrl({
                     bankId: bankConfig.bankId,

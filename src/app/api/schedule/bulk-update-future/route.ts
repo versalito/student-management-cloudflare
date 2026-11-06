@@ -2,10 +2,16 @@ import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { ShiftService } from '@/services/ShiftService';
 import { ConflictEngine } from '@/services/ConflictEngine';
+import { authenticate } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+  const actorId = auth.user.id;
+  const actorName = auth.user.name;
+
   try {
     const body = await request.json();
     const {
@@ -14,7 +20,6 @@ export async function POST(request: Request) {
       targetShiftId,
       targetTeacherId,
       targetMeetingLink,
-      actorId = 'ADMIN001',
     } = body;
 
     if (!classId || !fromDate) {
@@ -82,7 +87,7 @@ export async function POST(request: Request) {
     await repo.addAuditLog({
       action: 'SCHEDULE_CHANGE',
       userId: actorId,
-      userName: actorId === 'ADMIN001' ? 'Quản trị viên' : actorId,
+      userName: auth.user.name,
       userRole: 'ADMIN',
       targetResource: 'SCHEDULE',
       targetId: classId,
