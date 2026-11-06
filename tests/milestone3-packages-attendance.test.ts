@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LocalRepository } from '../src/repositories/LocalRepository';
+import { getNowTimeStr, getTodayDateStr } from '../src/utils/date';
+import type { ScheduleSlot } from '../src/types/schedule';
 import { GET as getPackages, POST as postPackage, PUT as putPackage, DELETE as deletePackage } from '../src/app/api/packages/route';
 import { GET as getFinance, POST as postFinance, PUT as putFinance } from '../src/app/api/finance/route';
 import { GET as getAnalytics } from '../src/app/api/attendance/analytics/route';
@@ -196,15 +198,31 @@ test('Milestone 3 Suite: Quản lý Gói Buổi Học, Tự Chọn Gói, Status 
   });
 
   await t.test('4. Theo dõi lớp đang học Real-time (/api/attendance/current-session)', async () => {
-    // 2026-09-21 là Thứ Hai, có ca học thật trong thời khóa biểu.
-    const reqSession = authed('http://localhost:3000/api/attendance/current-session?date=2026-09-21');
+    // Ca học phải thật sự đang diễn ra theo đồng hồ server: dựng một ca hôm nay
+    // phủ trọn thời điểm hiện tại (Asia/Saigon) rồi mới hỏi sổ trực tiếp.
+    const today = getTodayDateStr();
+    const now = getNowTimeStr();
+    const coveringSlot: ScheduleSlot = {
+      id: 'SCH_LIVE_' + today,
+      classId: 'CLS01',
+      teacherId: 'GV001',
+      date: today,
+      shiftId: 1,
+      startTime: now,
+      endTime: now,
+      subject: 'Toán Cao Cấp',
+      status: 'Đã lên lịch',
+    };
+    await repo.createScheduleSlot(coveringSlot);
+
+    const reqSession = authed('http://localhost:3000/api/attendance/current-session');
     const resSession = await getCurrentSession(reqSession);
     const dataSession = await resSession.json();
 
     assert.equal(resSession.status, 200);
     assert.equal(dataSession.success, true);
     assert.ok(dataSession.hasActiveSession, 'Phải có ca học hoạt động');
-    assert.ok(dataSession.slot);
+    assert.equal(dataSession.slot.id, coveringSlot.id);
     assert.ok(dataSession.stats);
     // 4 nhóm học sinh bắt buộc: Tham gia, Chưa tham gia, Vắng có phép, Vắng không phép
     assert.ok(dataSession.stats.attendedCount !== undefined, 'Phải có số lượng Đã tham gia');

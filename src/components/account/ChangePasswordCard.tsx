@@ -36,8 +36,8 @@ export const ChangePasswordCard: React.FC<{ className?: string }> = ({ className
       toast.error('Nhập mật khẩu hiện tại của bạn');
       return;
     }
-    if (newPassword.length < 6) {
-      toast.error('Mật khẩu mới phải có tối thiểu 6 ký tự');
+    if (!newPassword) {
+      toast.error('Nhập mật khẩu mới');
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -93,7 +93,7 @@ export const ChangePasswordCard: React.FC<{ className?: string }> = ({ className
         </Field>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field label="Mật khẩu mới" hint="Tối thiểu 6 ký tự" required>
+          <Field label="Mật khẩu mới" required>
             <Input
               type={inputType}
               autoComplete="new-password"

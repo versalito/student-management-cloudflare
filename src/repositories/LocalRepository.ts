@@ -20,10 +20,10 @@ import { TimeShift, TIME_SHIFTS } from '@/types/schedule';
 import { ScheduleSlot, ClassRequest, StudentSlotSwap } from '@/types/schedule';
 import { AttendanceRecord } from '@/types/attendance';
 import { TuitionInvoice, PayrollRecord } from '@/types/finance';
-import { BankTransaction } from '@/types/bank';
 import { SessionPackage } from '@/types/package';
 import { DEFAULT_PACKAGES } from './seeds/seedPackages';
 import { AuditLog } from '@/types/audit';
+import { SessionBookingFilter, StudentSessionBooking } from '@/types/booking';
 import { generateSeedData } from './seeds/seedData';
 import { dateToDayOfWeek } from '@/utils/date';
 
@@ -40,6 +40,7 @@ export class LocalRepository implements IRepository {
  private scheduleSlots: Map<string, ScheduleSlot> = new Map();
  private appSettings: Map<string, any> = new Map();
   private slotSwaps: Map<string, StudentSlotSwap> = new Map();
+  private sessionBookings: Map<string, StudentSessionBooking> = new Map();
  
  private timeShifts: Map<number, TimeShift> = new Map();
   private attendanceRecords: Map<string, AttendanceRecord> = new Map();
@@ -49,7 +50,6 @@ export class LocalRepository implements IRepository {
   private payrollRecords: Map<string, PayrollRecord> = new Map();
   private auditLogs: AuditLog[] = [];
   private notifications: Map<string, AppNotification> = new Map();
-  private bankTransactions: Map<string, BankTransaction> = new Map();
 
   private isInitialized = false;
 
@@ -105,7 +105,6 @@ export class LocalRepository implements IRepository {
     this.tuitionInvoices.clear();
     this.payrollRecords.clear();
     this.auditLogs = [];
-    this.bankTransactions.clear();
     this.isInitialized = false;
     this.init();
   }
@@ -439,24 +438,6 @@ export class LocalRepository implements IRepository {
     this.appSettings.set(key, value);
   }
 
-  // Sổ giao dịch ngân hàng — chống xử lý trùng webhook
-  public async claimBankTransaction(tx: BankTransaction): Promise<BankTransaction | null> {
-    if (this.bankTransactions.has(tx.referenceCode)) return null;
-    const stored: BankTransaction = { ...tx, receivedAt: tx.receivedAt || new Date().toISOString() };
-    this.bankTransactions.set(tx.referenceCode, stored);
-    return stored;
-  }
-
-  public async getBankTransaction(referenceCode: string): Promise<BankTransaction | null> {
-    return this.bankTransactions.get(referenceCode) || null;
-  }
-
-  public async finishBankTransaction(referenceCode: string, patch: Partial<BankTransaction>): Promise<void> {
-    const existing = this.bankTransactions.get(referenceCode);
-    if (!existing) return;
-    this.bankTransactions.set(referenceCode, { ...existing, ...patch });
-  }
-
   // Schedule
   public async getAllScheduleSlots(): Promise<ScheduleSlot[]> {
     return Array.from(this.scheduleSlots.values());
@@ -476,6 +457,7 @@ export class LocalRepository implements IRepository {
       if (query.date && slot.date !== query.date) return false;
       if (query.dateFrom && slot.date < query.dateFrom) return false;
       if (query.dateTo && slot.date > query.dateTo) return false;
+      if (query.ids && !query.ids.includes(slot.id)) return false;
       if (query.classId && slot.classId !== query.classId) return false;
       if (query.classIds && !query.classIds.includes(slot.classId)) return false;
       if (query.teacherId && slot.teacherId !== query.teacherId) return false;
@@ -583,6 +565,26 @@ export class LocalRepository implements IRepository {
   public async updateScheduleSlot(slot: ScheduleSlot): Promise<ScheduleSlot> {
     this.scheduleSlots.set(slot.id, { ...slot });
     return slot;
+  }
+
+  public async getSessionBookings(filter: SessionBookingFilter = {}): Promise<StudentSessionBooking[]> {
+    const slotIds = filter.slotIds ? new Set(filter.slotIds) : null;
+    return Array.from(this.sessionBookings.values())
+      .filter(b => !filter.studentId || b.studentId === filter.studentId)
+      .filter(b => !filter.slotId || b.slotId === filter.slotId)
+      .filter(b => !slotIds || slotIds.has(b.slotId))
+      .filter(b => !filter.statuses || filter.statuses.includes(b.status))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  public async createSessionBooking(booking: StudentSessionBooking): Promise<StudentSessionBooking> {
+    this.sessionBookings.set(booking.id, { ...booking });
+    return booking;
+  }
+
+  public async updateSessionBooking(booking: StudentSessionBooking): Promise<StudentSessionBooking> {
+    this.sessionBookings.set(booking.id, { ...booking });
+    return booking;
   }
 
   public async createScheduleSlotsBatch(slots: ScheduleSlot[]): Promise<ScheduleSlot[]> {

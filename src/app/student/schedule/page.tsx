@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useCallback, useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { Header } from '@/components/common/Header';
 import { useApp } from '@/context/AppContext';
 import { RoleGuard } from '@/components/common/RoleGuard';
 import { ScheduleSlot, TimeShift, TIME_SHIFTS } from '@/types/schedule';
+import type { ScheduleSlotWithClassName } from '@/repositories/IRepository';
 import { ClassEntity } from '@/types/classroom';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -15,10 +16,9 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Sheet } from '@/components/ui/Sheet';
 import { Field, Textarea } from '@/components/ui/Field';
 import { useToast } from '@/components/ui/Toast';
+import { useStudentCheckin } from '@/hooks/useStudentCheckin';
 import {
   Clock,
-  MapPin,
-  UserCheck,
   BookOpen,
   Video,
   ExternalLink,
@@ -27,8 +27,10 @@ import {
   CalendarDays,
   CalendarX2,
   ArrowRightLeft,
+  CheckCircle2,
+  Trash2,
 } from 'lucide-react';
-import { getTodayDateStr, getTodayDateStrByDate, minutesTo24h } from '@/utils/date';
+import { getTodayDateStr, getTodayDateStrByDate, getNowTimeStr, minutesTo24h, timeToMinutes } from '@/utils/date';
 import { cn } from '@/lib/cn';
 import {
   computeTimelineBounds,
@@ -95,7 +97,7 @@ function formatWeekRange(weekDates: string[]): string {
 
 export default function StudentSchedulePage() {
   const { currentUser, isReady } = useApp();
-  const [slots, setSlots] = useState<ScheduleSlot[]>([]);
+  const [slots, setSlots] = useState<ScheduleSlotWithClassName[]>([]);
   const [classes, setClasses] = useState<ClassEntity[]>([]);
   const [shifts, setShifts] = useState<TimeShift[]>(TIME_SHIFTS);
   const [loading, setLoading] = useState(true);
@@ -104,33 +106,42 @@ export default function StudentSchedulePage() {
   const [absenceSlot, setAbsenceSlot] = useState<ScheduleSlot | null>(null);
   const [absenceReason, setAbsenceReason] = useState('');
   const [requestSubmitting, setRequestSubmitting] = useState(false);
+  const [cancelingBookingId, setCancelingBookingId] = useState<string | null>(null);
+  // Cửa sổ điểm danh do server quyết định; TKB chỉ hiển thị đúng trạng thái đó.
+  const { sessionState, checking, checkinState, handleCheckin, refreshSessionState } =
+    useStudentCheckin({ studentId: currentUser?.id });
+  const todayStr = sessionState?.today || getTodayDateStr();
+  const nowTimeStr = getNowTimeStr();
+
+  const loadSchedule = useCallback(async () => {
+    if (!currentUser?.id) return;
+    setLoading(true);
+    // Cửa sổ điểm danh tải song song để CTA có trạng thái ngay khi TKB hiện ra.
+    void refreshSessionState();
+    try {
+      const [slotRes, clsRes, shiftRes] = await Promise.all([
+        fetch(`/api/schedule?studentId=${currentUser.id}`),
+        fetch('/api/classes'),
+        fetch('/api/shifts'),
+      ]);
+      const slotData = await slotRes.json();
+      const clsData = await clsRes.json();
+      const shiftData = await shiftRes.json();
+
+      setSlots(slotData.slots || []);
+      setClasses(clsData.classes || []);
+      if (shiftData.shifts) setShifts(shiftData.shifts);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }, [currentUser?.id, refreshSessionState]);
 
   useEffect(() => {
     if (!isReady || !currentUser?.id) return;
-
-    async function load() {
-      setLoading(true);
-      try {
-        const [slotRes, clsRes, shiftRes] = await Promise.all([
-          fetch(`/api/schedule?studentId=${currentUser?.id || ''}`),
-          fetch('/api/classes'),
-          fetch('/api/shifts'),
-        ]);
-        const slotData = await slotRes.json();
-        const clsData = await clsRes.json();
-        const shiftData = await shiftRes.json();
-
-        setSlots(slotData.slots || []);
-        setClasses(clsData.classes || []);
-        if (shiftData.shifts) setShifts(shiftData.shifts);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-  }, [currentUser, isReady]);
+    void loadSchedule();
+  }, [currentUser?.id, isReady, loadSchedule]);
 
   const classMap = new Map(classes.map((c) => [c.id, c]));
 
@@ -159,6 +170,28 @@ export default function StudentSchedulePage() {
   const openAbsenceModal = (slot: ScheduleSlot) => {
     setAbsenceSlot(slot);
     setAbsenceReason('');
+  };
+
+  // Huỷ buổi lẻ ngay trên TKB: server chỉ cho huỷ trước giờ bắt đầu.
+  const cancelBooking = async (slot: ScheduleSlotWithClassName) => {
+    if (!currentUser?.id) return;
+    setCancelingBookingId(slot.id);
+    try {
+      const res = await fetch(
+        `/api/student/bookings?studentId=${encodeURIComponent(currentUser.id)}&slotId=${encodeURIComponent(
+          slot.id
+        )}`,
+        { method: 'DELETE' }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Huỷ buổi thất bại');
+      toast.success('Đã huỷ buổi lẻ.');
+      await loadSchedule();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Lỗi kết nối mạng.');
+    } finally {
+      setCancelingBookingId(null);
+    }
   };
   const submitAbsenceRequest = async () => {
     if (!absenceSlot || !currentUser?.id) return;
@@ -402,10 +435,13 @@ export default function StudentSchedulePage() {
                               // Với học viên, hai lớp của chính mình trùng giờ luôn là vấn đề cần xử lý
                               const hasConflict = columnCount > 1;
                               const cls = classMap.get(slot.classId);
+                              const isBooking = slot.source === 'booking';
                               const meetingLink = slot.meetingLink || cls?.meetingLink;
                               const topPx = minuteToTopPx(startMin);
                               const rawHeightPx = minuteToTopPx(endMin) - topPx;
                               const isShortSlot = rawHeightPx < 160;
+                              // CTA điểm danh chỉ có ý nghĩa với buổi hôm nay.
+                              const checkin = slot.date === todayStr ? checkinState(slot) : null;
                               const heightPx = Math.max(rawHeightPx, isShortSlot ? 160 : 36);
                               const widthPct = 100 / columnCount;
 
@@ -433,6 +469,11 @@ export default function StudentSchedulePage() {
                                           qua đêm
                                         </Badge>
                                       )}
+                                      {isBooking && (
+                                        <Badge tone="primary" className="text-[9px] px-1 py-0">
+                                          Lịch lẻ
+                                        </Badge>
+                                      )}
                                       {hasConflict && (
                                         <Badge tone="warning" className="text-[9px] px-1 py-0">
                                           Trùng giờ
@@ -443,15 +484,11 @@ export default function StudentSchedulePage() {
                                       {slot.startTime} – {slot.endTime}
                                     </div>
                                     <div className="text-[12px] font-bold text-foreground leading-tight mt-0.5 truncate">
-                                      {slot.subject}
+                                      {cls?.name || slot.classId}
                                     </div>
                                   </div>
 
                                   <div className="flex-1 min-h-0 overflow-hidden space-y-0.5 mt-1 pt-1 border-t border-line/60">
-                                    <div className="text-[11px] text-muted-foreground flex items-center gap-1">
-                                      <UserCheck size={11} className="shrink-0 text-primary" />
-                                      <span className="truncate">{slot.teacherName || slot.teacherId}</span>
-                                    </div>
                                     {meetingLink ? (
                                       <a
                                         href={meetingLink}
@@ -470,20 +507,72 @@ export default function StudentSchedulePage() {
                                     )}
                                   </div>
                                     <div className="shrink-0 flex flex-col gap-1 pt-1.5 mt-1 border-t border-line/40">
-                                      <button
-                                        onClick={() => openAbsenceModal(slot)}
-                                        className="inline-flex w-full flex-nowrap whitespace-nowrap items-center justify-center gap-1 rounded-pill border border-line px-2 py-0.5 text-[10px] font-semibold text-danger hover:bg-danger hover:text-white transition"
-                                      >
-                                        <CalendarX2 size={11} />
-                                        Xin vắng
-                                      </button>
-                                      <Link
-                                        href="/student/classes"
-                                        className="inline-flex w-full flex-nowrap whitespace-nowrap items-center justify-center gap-1 rounded-pill border border-line px-2 py-0.5 text-[10px] font-semibold text-primary hover:bg-primary-soft transition"
-                                      >
-                                        <ArrowRightLeft size={11} />
-                                        Đổi ca
-                                      </Link>
+                                      {checkin && (
+                                        checkin.type === 'open' ? (
+                                          <button
+                                            onClick={() => handleCheckin(slot)}
+                                            disabled={checking === slot.id}
+                                            className="inline-flex w-full items-center justify-center gap-1 rounded-pill bg-primary px-2 py-1 text-[10px] font-bold text-white hover:bg-primary-ink disabled:opacity-60 transition"
+                                          >
+                                            <CheckCircle2 size={11} />
+                                            {checking === slot.id ? 'Đang lưu…' : 'Điểm danh'}
+                                          </button>
+                                        ) : checkin.type === 'done' ? (
+                                          <div className="inline-flex w-full items-center justify-center gap-1 rounded-pill bg-success-soft px-2 py-1 text-[10px] font-bold text-foreground">
+                                            <CheckCircle2 size={11} className="text-success" />
+                                            {checkin.status}
+                                            {checkin.time ? ` ${checkin.time}` : ''}
+                                          </div>
+                                        ) : (
+                                          <div
+                                            title={checkin.reason}
+                                            className="inline-flex w-full items-center justify-center gap-1 rounded-pill border border-line bg-muted/40 px-2 py-1 text-[10px] font-semibold text-muted-foreground"
+                                          >
+                                            <Clock size={11} />
+                                            <span className="truncate">{checkin.reason}</span>
+                                          </div>
+                                        )
+                                      )}
+                                      {isBooking ? (
+                                        (() => {
+                                          const started =
+                                            slot.date < todayStr ||
+                                            (slot.date === todayStr &&
+                                              timeToMinutes(nowTimeStr) >= timeToMinutes(slot.startTime));
+                                          return (
+                                            <button
+                                              onClick={() => cancelBooking(slot)}
+                                              disabled={started || cancelingBookingId === slot.id}
+                                              title={started ? 'Buổi đã bắt đầu, không huỷ được nữa' : undefined}
+                                              className="inline-flex w-full flex-nowrap whitespace-nowrap items-center justify-center gap-1 rounded-pill border border-line px-2 py-0.5 text-[10px] font-semibold text-danger hover:bg-danger hover:text-white disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-danger transition"
+                                            >
+                                              <Trash2 size={11} />
+                                              {cancelingBookingId === slot.id
+                                                ? 'Đang huỷ…'
+                                                : started
+                                                  ? 'Đã bắt đầu'
+                                                  : 'Huỷ buổi'}
+                                            </button>
+                                          );
+                                        })()
+                                      ) : (
+                                        <>
+                                          <button
+                                            onClick={() => openAbsenceModal(slot)}
+                                            className="inline-flex w-full flex-nowrap whitespace-nowrap items-center justify-center gap-1 rounded-pill border border-line px-2 py-0.5 text-[10px] font-semibold text-danger hover:bg-danger hover:text-white transition"
+                                          >
+                                            <CalendarX2 size={11} />
+                                            Xin vắng
+                                          </button>
+                                          <Link
+                                            href="/student/classes"
+                                            className="inline-flex w-full flex-nowrap whitespace-nowrap items-center justify-center gap-1 rounded-pill border border-line px-2 py-0.5 text-[10px] font-semibold text-primary hover:bg-primary-soft transition"
+                                          >
+                                            <ArrowRightLeft size={11} />
+                                            Đổi ca
+                                          </Link>
+                                        </>
+                                      )}
                                     </div>
                                 </div>
                               );
@@ -505,7 +594,7 @@ export default function StudentSchedulePage() {
           title="Xin vắng mặt"
           description={
             absenceSlot
-              ? absenceSlot.subject + ' - ' + absenceSlot.date + ' (' + absenceSlot.startTime + ' - ' + absenceSlot.endTime + ')'
+              ? (classMap.get(absenceSlot.classId)?.name || absenceSlot.classId) + ' - ' + absenceSlot.date + ' (' + absenceSlot.startTime + ' - ' + absenceSlot.endTime + ')'
               : undefined
           }
           size="sm"

@@ -41,8 +41,6 @@ export default function StudentTuitionPage() {
   const [packages, setPackages] = useState<SessionPackage[]>([]);
   const [selectedInvoice, setSelectedInvoice] = useState<TuitionInvoice | null>(null);
   const [showQrModal, setShowQrModal] = useState(false);
-  const [paymentProcessing, setPaymentProcessing] = useState(false);
-  const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingPackages, setLoadingPackages] = useState(true);
   const [buyingPackageId, setBuyingPackageId] = useState<string | null>(null);
@@ -131,13 +129,12 @@ export default function StudentTuitionPage() {
   const handleOpenPayment = (inv: TuitionInvoice) => {
     setSelectedInvoice(inv);
     setShowQrModal(true);
-    setPaymentSuccess(false);
   };
 
   const handleCancelInvoice = async (inv: TuitionInvoice) => {
     if (!currentUser?.id) return;
     const ok = window.confirm(
-      `Hủy gói "${inv.packageName || inv.title}" (${money(inv.amount)})?\n\nGói chưa thanh toán sẽ được đánh dấu "Đã hủy" và không còn tính vào công nợ của bạn.`
+      `Huỷ thanh toán "${inv.packageName || inv.title}" (${money(inv.amount)})?\n\nGói chưa thanh toán sẽ được đánh dấu "Đã hủy" và không còn tính vào công nợ của bạn.`
     );
     if (!ok) return;
 
@@ -152,12 +149,24 @@ export default function StudentTuitionPage() {
         throw new Error(data.error || 'Không thể hủy gói đã chọn');
       }
 
-      toast.success('Đã hủy gói. Hóa đơn được đánh dấu Đã hủy.');
+      toast.success('Đã hủy thanh toán. Hóa đơn được đánh dấu Đã hủy.');
       await loadInvoices();
+      return true;
     } catch (err: any) {
-      toast.error(err.message || 'Lỗi kết nối khi hủy gói');
+      toast.error(err.message || 'Lỗi kết nối khi hủy thanh toán');
+      return false;
     } finally {
       setCancelingInvoiceId(null);
+    }
+  };
+
+  /** Huỷ ngay trong modal thanh toán: xong thì đóng luôn. */
+  const handleCancelPayment = async () => {
+    if (!selectedInvoice) return;
+    const cancelled = await handleCancelInvoice(selectedInvoice);
+    if (cancelled) {
+      setShowQrModal(false);
+      setSelectedInvoice(null);
     }
   };
 
@@ -194,43 +203,10 @@ export default function StudentTuitionPage() {
       await loadInvoices();
       setSelectedInvoice(data.invoice);
       setShowQrModal(true);
-      setPaymentSuccess(false);
     } catch (err: any) {
       toast.error(err.message || 'Lỗi kết nối khi chọn gói học');
     } finally {
       setBuyingPackageId(null);
-    }
-  };
-
-  const handleConfirmPayment = async () => {
-    if (!selectedInvoice) return;
-    setPaymentProcessing(true);
-    try {
-      const res = await fetch('/api/finance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          invoiceId: selectedInvoice.id,
-          paymentAmount: selectedInvoice.remainingAmount,
-          paymentMethod: 'Chuyển khoản QR',
-          transactionCode: `VIETQR_${selectedInvoice.studentId}_${Date.now().toString().slice(-6)}`,
-        }),
-      });
-      if (res.ok) {
-        setPaymentSuccess(true);
-        toast.success('Ghi nhận thanh toán thành công');
-        setTimeout(async () => {
-          setShowQrModal(false);
-          await loadInvoices();
-        }, 2000);
-      } else {
-        toast.error('Không thể xác nhận thanh toán');
-      }
-    } catch (e) {
-      console.error(e);
-      toast.error('Lỗi kết nối khi xác nhận');
-    } finally {
-      setPaymentProcessing(false);
     }
   };
 
@@ -577,44 +553,27 @@ export default function StudentTuitionPage() {
                 setShowQrModal(false);
                 setSelectedInvoice(null);
               }}
-              title="Cổng thanh toán VietQR Napas247"
-              description="Quét mã QR bằng ứng dụng ngân hàng bất kỳ để thanh toán tự động"
+              title="Thanh toán học phí"
+              description="Chuyển khoản theo mã VietQR bên dưới. Quản trị sẽ đối soát sao kê và xác nhận học phí."
               size="md"
               footer={
-                !paymentSuccess ? (
-                  <>
-                    <Button variant="secondary" onClick={() => setShowQrModal(false)}>
-                      Đóng
-                    </Button>
-                    <Button
-                      variant="primary"
-                      loading={paymentProcessing}
-                      onClick={handleConfirmPayment}
-                    >
-                      Xác nhận đã chuyển khoản
-                    </Button>
-                  </>
-                ) : (
+                <div className="flex items-center justify-end gap-2 w-full">
                   <Button variant="secondary" onClick={() => setShowQrModal(false)}>
-                    Hoàn tất
+                    Đóng
                   </Button>
-                )
+                  <Button
+                    variant="danger-outline"
+                    loading={cancelingInvoiceId === selectedInvoice.id}
+                    onClick={handleCancelPayment}
+                    icon={<Trash2 size={14} />}
+                  >
+                    Huỷ thanh toán
+                  </Button>
+                </div>
               }
             >
-              {paymentSuccess ? (
-                <div className="py-8 text-center space-y-3">
-                  <div className="w-14 h-14 bg-success-soft text-success rounded-full flex items-center justify-center mx-auto">
-                    <CheckCircle2 size={32} />
-                  </div>
-                  <h4 className="text-base font-bold text-foreground">Thanh toán thành công</h4>
-                  <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-                    Hệ thống đã ghi nhận khoản thanh toán cho hóa đơn {selectedInvoice.id}.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-4 text-center">
-                  <div className="p-3 bg-muted rounded-card border border-line inline-block">
-                    { }
+              <div className="space-y-4 text-center">
+                <div className="p-3 bg-muted rounded-card border border-line inline-block">
                     <img
                       src={generateVietQRUrl({
                         bankId: bankConfig.bankId,
@@ -725,11 +684,10 @@ export default function StudentTuitionPage() {
                     </div>
                   </div>
 
-                  <p className="text-[12px] text-muted-foreground">
-                    Mở ứng dụng ngân hàng bất kỳ để quét mã VietQR trên hoặc nhập thông tin chuyển khoản chính xác theo cú pháp.
-                  </p>
-                </div>
-              )}
+                <p className="text-[12px] text-muted-foreground">
+                  Mở ứng dụng ngân hàng bất kỳ để quét mã VietQR trên hoặc nhập thông tin chuyển khoản chính xác theo cú pháp.
+                </p>
+              </div>
             </Sheet>
           )}
         </main>

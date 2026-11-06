@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint . --max-warnings=367",
+    "lint": "eslint . --max-warnings=347",
     "test": "DATA_SOURCE=local node --import tsx --test tests/**/*.test.ts",
     "seed:gas": "node --import tsx scripts/seed-gas.ts",
     "db:reconcile": "node --import tsx scripts/reconcile-profiles.ts",

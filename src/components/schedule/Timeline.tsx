@@ -191,8 +191,8 @@ export function nowMinutesInSaigon(): number {
   return (hh || 0) * 60 + (mm || 0);
 }
 
-export interface LaidOutSlot {
-  slot: ScheduleSlot;
+export interface LaidOutSlot<T extends ScheduleSlot = ScheduleSlot> {
+  slot: T;
   startMin: number;
   endMin: number;
   isOvernight: boolean;
@@ -214,7 +214,7 @@ export interface LaidOutSlot {
  * Ca không trùng nhau thì chiếm trọn chiều ngang; ca trùng giờ được chia đôi,
  * chia ba... để nhìn là thấy ngay chỗ bị trùng lịch.
  */
-export function layoutDaySlots(slots: ScheduleSlot[]): LaidOutSlot[] {
+export function layoutDaySlots<T extends ScheduleSlot>(slots: T[]): LaidOutSlot<T>[] {
   const items = slots
     .map((slot) => {
       const { startMin, endMin, isOvernight } = clampSlotToTimeline(slot);
@@ -227,7 +227,7 @@ export function layoutDaySlots(slots: ScheduleSlot[]): LaidOutSlot[] {
     })
     .sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
 
-  const laidOut: LaidOutSlot[] = [];
+  const laidOut: LaidOutSlot<T>[] = [];
   let group: typeof items = [];
   let groupEnd = -1;
 
@@ -248,7 +248,7 @@ export function layoutDaySlots(slots: ScheduleSlot[]): LaidOutSlot[] {
     for (const item of placed) {
       // Trung tâm chạy online nên hai lớp khác nhau học song song là bình thường,
       // giáo viên cũng có thể kèm nhiều nhóm cùng lúc. Chỉ tính là trùng lịch khi cùng một lớp.
-      let overlap: LaidOutSlot['overlap'] = columnCount > 1 ? 'parallel' : 'none';
+      let overlap: LaidOutSlot<T>['overlap'] = columnCount > 1 ? 'parallel' : 'none';
       if (columnCount > 1) {
         const clash = placed.some(
           (other) =>

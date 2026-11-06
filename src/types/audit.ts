@@ -10,7 +10,9 @@ export type AuditAction =
   | 'PAYMENT_PROCESS' 
   | 'PACKAGE_PURCHASE'
   | 'CANCEL_INVOICE'
-  | 'REQUEST_DECIDE';
+  | 'REQUEST_DECIDE'
+  | 'SESSION_BOOKED'
+  | 'SESSION_BOOKING_CANCELLED';
 
 export interface AuditLog {
   id: string; // AUD0001..

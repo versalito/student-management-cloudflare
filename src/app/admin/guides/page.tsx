@@ -1,26 +1,15 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, Suspense } from 'react';
 import Link from 'next/link';
 import { Header } from '@/components/common/Header';
 import { RoleGuard } from '@/components/common/RoleGuard';
-import { BankWebhookSimulator } from '@/components/tuition/BankWebhookSimulator';
-import { TuitionInvoice } from '@/types/finance';
 import { Card, CardHeader } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
 import { LinkButton } from '@/components/ui/LinkButton';
-import { Badge } from '@/components/ui/Badge';
 import { SegmentedControl, TabItem } from '@/components/ui/Tabs';
-import { useToast } from '@/components/ui/Toast';
 import {
-  Building2,
-  Copy,
-  Check,
-  Terminal,
   ArrowRight,
   Shield,
-  GraduationCap,
-  UserCheck,
   QrCode,
   CalendarDays,
   FileText,
@@ -28,43 +17,11 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 
-const SAMPLE_PAYLOAD = {
-  gateway: 'SePay',
-  accountNumber: '0987654321',
-  transferType: 'in',
-  transferAmount: 1500000,
-  accumulated: 50000000,
-  referenceCode: 'MBVCB.123456789',
-  content: 'ST001 chuyen tien hoc phi TUI0001',
-  description: 'ST001 chuyen tien hoc phi TUI0001',
-};
-
 function AdminGuidesContent() {
-  const toast = useToast();
-  const [invoices, setInvoices] = useState<TuitionInvoice[]>([]);
   const [activeTab, setActiveTab] = useState<'admin' | 'teacher' | 'student'>('admin');
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch('/api/finance')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.invoices) {
-          setInvoices(data.invoices);
-        }
-      })
-      .catch((err) => console.error('Lỗi tải danh sách hóa đơn:', err));
-  }, []);
-
-  const handleCopy = (text: string, key: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedKey(key);
-    toast.success('Đã sao chép vào bộ nhớ tạm');
-    setTimeout(() => setCopiedKey(null), 2000);
-  };
 
   const roleTabs: TabItem<'admin' | 'teacher' | 'student'>[] = [
-    { value: 'admin', label: 'Quản trị viên & Cổng thanh toán' },
+    { value: 'admin', label: 'Quản trị viên & Học phí' },
     { value: 'teacher', label: 'Dành cho giáo viên' },
     { value: 'student', label: 'Dành cho học sinh' },
   ];
@@ -73,7 +30,7 @@ function AdminGuidesContent() {
     <div className="flex-1 flex flex-col min-h-screen">
       <Header
         title="Hướng dẫn sử dụng hệ thống"
-        subtitle="Tài liệu vận hành, quy trình nghiệp vụ và cấu hình cổng thanh toán tự động"
+        subtitle="Tài liệu vận hành, quy trình nghiệp vụ và đối soát học phí"
       />
 
       <main className="p-4 sm:p-6 max-w-content mx-auto w-full space-y-5">
@@ -93,21 +50,22 @@ function AdminGuidesContent() {
         {/* TAB 1: QUẢN TRỊ VIÊN & CỔNG THANH TOÁN */}
         {activeTab === 'admin' && (
           <div className="space-y-5">
-            {/* Thẻ giới thiệu gạch nợ */}
             <Card className="bg-primary text-white border-0 shadow-primary space-y-2">
               <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-pill bg-white/15 text-[12px] font-semibold text-white/90">
                 <CreditCard size={14} />
-                <span>Thanh toán tự động</span>
+                <span>Đối soát thủ công</span>
               </div>
               <h2 className="text-lg sm:text-xl font-bold">
-                Tự động gạch nợ học phí qua VietQR và Webhook
+                Học sinh chuyển khoản bằng VietQR, quản trị xác nhận
               </h2>
               <p className="text-[13px] text-white/80 leading-relaxed max-w-3xl">
-                Hệ thống tích hợp chuẩn VietQR và webhook biến động số dư. Khi người học quét mã hoặc chuyển khoản đúng cú pháp, hệ thống tự động ghi nhận thanh toán và gạch nợ hóa đơn ngay lập tức.
+                Mã QR động đã điền sẵn số tiền và nội dung chuyển khoản. Sau khi nhận được tiền trong tài khoản
+                ngân hàng, quản trị mở <strong className="font-semibold text-white">Quản lý học phí</strong>,
+                bấm <strong className="font-semibold text-white">Thu tiền</strong> và ghi nhận số tiền thực nhận.
+                Hệ thống không tự động gạch nợ từ bất kỳ cổng thanh toán bên thứ ba nào.
               </p>
             </Card>
 
-            {/* 3 Bước cấu hình */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Card className="space-y-3">
                 <div className="w-8 h-8 rounded-pill bg-primary-soft text-primary-ink flex items-center justify-center font-bold text-sm">
@@ -115,7 +73,7 @@ function AdminGuidesContent() {
                 </div>
                 <h3 className="text-[15px] font-bold text-foreground">Khai báo tài khoản thụ hưởng</h3>
                 <p className="text-[13px] text-muted-foreground leading-relaxed">
-                  Tại mục <Link href="/admin/tuition" className="text-primary font-semibold hover:underline">Quản lý học phí</Link>, mở mục cấu hình ngân hàng để nhập:
+                  Tại mục <Link href="/admin/tuition" className="text-primary font-semibold hover:underline">Quản lý học phí</Link>, mở cấu hình ngân hàng để nhập:
                 </p>
                 <ul className="text-[13px] text-muted-foreground space-y-1 list-disc pl-4">
                   <li>Tên ngân hàng thụ hưởng (MB, VCB, TCB...)</li>
@@ -128,26 +86,23 @@ function AdminGuidesContent() {
                 <div className="w-8 h-8 rounded-pill bg-primary-soft text-primary-ink flex items-center justify-center font-bold text-sm">
                   2
                 </div>
-                <h3 className="text-[15px] font-bold text-foreground">Cài đặt Webhook nhận tiền</h3>
+                <h3 className="text-[15px] font-bold text-foreground">Học sinh chuyển khoản</h3>
                 <p className="text-[13px] text-muted-foreground leading-relaxed">
-                  Đăng ký tài khoản tại cổng đối soát (SePay hoặc Casso) và dán địa chỉ Webhook sau:
+                  Học sinh mở <strong className="text-foreground">Học phí</strong>, chọn hoá đơn cần đóng và quét mã VietQR.
+                  Nội dung chuyển khoản mang sẵn mã nhận diện:
                 </p>
-                <div className="p-2.5 rounded-field bg-muted space-y-1.5 border border-line">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-[11px] text-foreground truncate">
-                      /api/payment/webhook
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy('/api/payment/webhook', 'url')}
-                      className="p-1 text-muted-foreground hover:text-foreground cursor-pointer"
-                      aria-label="Sao chép địa chỉ webhook"
-                    >
-                      {copiedKey === 'url' ? <Check size={14} className="text-success" /> : <Copy size={14} />}
-                    </button>
+                <div className="space-y-1.5 text-[12px]">
+                  <div className="flex items-center justify-between p-2 rounded-field bg-muted">
+                    <span className="text-muted-foreground">Theo mã hoá đơn:</span>
+                    <span className="font-mono font-bold text-primary-ink">TUI0001</span>
+                  </div>
+                  <div className="flex items-center justify-between p-2 rounded-field bg-muted">
+                    <span className="text-muted-foreground">Theo mã học sinh:</span>
+                    <span className="font-mono font-bold text-primary-ink">ST001</span>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
-                    Phương thức: <span className="font-semibold text-foreground">POST</span> | Định dạng: <span className="font-semibold text-foreground">JSON</span>
+                    Học sinh quét QR rồi chuyển khoản; hoá đơn <strong className="text-foreground">không</strong> tự
+                    đánh dấu đã nộp — quản trị đối soát sao kê rồi xác nhận ở bước sau.
                   </p>
                 </div>
               </Card>
@@ -156,66 +111,30 @@ function AdminGuidesContent() {
                 <div className="w-8 h-8 rounded-pill bg-primary-soft text-primary-ink flex items-center justify-center font-bold text-sm">
                   3
                 </div>
-                <h3 className="text-[15px] font-bold text-foreground">Cú pháp nhận diện giao dịch</h3>
+                <h3 className="text-[15px] font-bold text-foreground">Quản trị xác nhận</h3>
                 <p className="text-[13px] text-muted-foreground leading-relaxed">
-                  Mã QR động chứa sẵn nội dung chuyển khoản theo 2 cách nhận diện:
+                  Đối chiếu sao kê ngân hàng rồi mở ô <strong className="text-foreground">Thu tiền</strong> của hoá đơn:
                 </p>
-                <div className="space-y-1.5 text-[12px]">
-                  <div className="flex items-center justify-between p-2 rounded-field bg-muted">
-                    <span className="text-muted-foreground">Theo mã hóa đơn:</span>
-                    <span className="font-mono font-bold text-primary-ink">TUI0001</span>
-                  </div>
-                  <div className="flex items-center justify-between p-2 rounded-field bg-muted">
-                    <span className="text-muted-foreground">Theo mã học sinh:</span>
-                    <span className="font-mono font-bold text-primary-ink">ST001</span>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    Chuyển theo mã học sinh sẽ tự gạch nợ lần lượt các hóa đơn cũ nhất.
-                  </p>
-                </div>
+                <ul className="text-[13px] text-muted-foreground space-y-1 list-disc pl-4">
+                  <li>Chọn cách thu và ngày thu</li>
+                  <li>Nhập <strong className="text-foreground">số tiền thực nhận</strong> (mặc định bằng số còn nợ)</li>
+                  <li>Nhập ít hơn số còn nợ thì hoá đơn được ghi nhận thanh toán một phần và vẫn ở trạng thái <strong className="text-foreground">Còn nợ</strong></li>
+                </ul>
               </Card>
             </div>
 
-            {/* Cấu trúc JSON Webhook */}
             <Card className="space-y-3">
               <CardHeader
-                title="Cấu trúc dữ liệu Webhook gửi đến hệ thống"
-                subtitle="Định dạng JSON chuẩn hỗ trợ bởi cổng SePay, Casso hoặc webhook nội bộ"
-                action={
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    icon={copiedKey === 'payload' ? <Check size={14} className="text-success" /> : <Copy size={14} />}
-                    onClick={() => handleCopy(JSON.stringify(SAMPLE_PAYLOAD, null, 2), 'payload')}
-                  >
-                    Sao chép JSON
-                  </Button>
-                }
+                title="Đối soát và nhật ký"
+                subtitle="Mọi lần xác nhận đều ghi nhật ký để tra cứu về sau"
+                icon={<Shield size={18} />}
               />
-              <div className="p-3.5 rounded-field bg-muted border border-line font-mono text-[12px] text-foreground overflow-x-auto">
-                <pre>{JSON.stringify(SAMPLE_PAYLOAD, null, 2)}</pre>
-              </div>
+              <ul className="text-[13px] text-muted-foreground space-y-2 list-disc pl-4 leading-relaxed">
+                <li>Nhật ký thao tác tại <Link href="/admin/audit" className="text-primary font-semibold hover:underline">Nhật ký hệ thống</Link> ghi lại người xác nhận, số tiền và lý do/ghi chú.</li>
+                <li>Số tiền đã nộp, còn nợ và mã giao dịch thủ công (<span className="font-mono">MANUAL-...</span>) hiển thị ngay trên bảng học phí.</li>
+                <li>Hoá đơn đã có thanh toán một phần vẫn cho phép thu tiếp cho đến khi hết nợ.</li>
+              </ul>
             </Card>
-
-            {/* Giả lập Webhook để thử nghiệm */}
-            <div>
-              <div className="mb-2">
-                <h3 className="text-[15px] font-bold text-foreground">Công cụ giả lập gạch nợ trực tiếp</h3>
-                <p className="text-[13px] text-muted-foreground">
-                  Gửi dữ liệu thanh toán mẫu để kiểm tra tính năng gạch nợ hóa đơn ngay trong môi trường hiện tại.
-                </p>
-              </div>
-              <BankWebhookSimulator
-                invoices={invoices}
-                onSuccess={() => {
-                  fetch('/api/finance')
-                    .then((res) => res.json())
-                    .then((data) => {
-                      if (data.invoices) setInvoices(data.invoices);
-                    });
-                }}
-              />
-            </div>
           </div>
         )}
 
@@ -308,6 +227,8 @@ function AdminGuidesContent() {
                 <li>Vào mục <strong>Học phí</strong> để xem các hóa đơn cần thanh toán.</li>
                 <li>Mở mã QR VietQR và quét bằng ứng dụng ngân hàng bất kỳ.</li>
                 <li>Không cần sửa nội dung chuyển khoản vì mã QR đã gắn sẵn mã nhận diện tự động.</li>
+                <li>Hoá đơn không tự đánh dấu đã nộp: quản trị đối soát sao kê rồi xác nhận, sau đó trạng thái chuyển sang <strong>Đã nộp</strong>.</li>
+                <li>Nếu đổi ý trước khi chuyển tiền, mở mã QR và bấm <strong>Huỷ thanh toán</strong> để gỡ hoá đơn khỏi công nợ.</li>
               </ul>
             </Card>
 

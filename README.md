@@ -11,7 +11,7 @@ Ba cổng giao diện riêng, mỗi cổng chặn bằng middleware theo role tr
 
 - **Admin** (`/admin`): toàn trường — tài khoản, học sinh, giáo viên, lớp, lịch, điểm danh, yêu cầu, học phí, chấm công, audit.
 - **Giáo viên** (`/teacher`): lớp đang dạy, điểm danh lớp mình, chấm công theo ca, lịch dạy.
-- **Học sinh** (`/student`): điểm danh nhanh, lịch học, lớp, học phí, yêu cầu.
+- **Học sinh** (`/student`): điểm danh nhanh, lịch học, lớp, đặt buổi lẻ, học phí, yêu cầu.
 
 ## Chạy tại máy
 
@@ -31,16 +31,15 @@ Biến môi trường chính:
 | `SUPABASE_URL` | URL project Supabase |
 | `SUPABASE_SERVICE_ROLE_KEY` | Khóa server-side, chỉ dùng ở phía server (bỏ trống thì đọc/ghi Supabase lỗi) |
 | `SESSION_SECRET` | Ký cookie phiên, **≥ 32 ký tự**. Thiếu ở production → login trả 500 |
-| `BANK_WEBHOOK_SECRET` | Secret chia sẻ với cổng thanh toán, **≥ 32 ký tự**. Trống → webhook từ chối toàn bộ |
 
-Ba secret cuối không đặt trong `wrangler.toml`; production nạp bằng `wrangler secret put <TÊN>`, local bằng `.dev.vars`.
+Hai secret cuối không đặt trong `wrangler.toml`; production nạp bằng `wrangler secret put <TÊN>`, local bằng `.dev.vars`.
 
 ## Bảo mật
 
 - **Phiên**: cookie `smc_session` = `payload.base64url.sig`, ký HMAC-SHA-256 bằng WebCrypto trên `SESSION_SECRET`; `HttpOnly`, `SameSite=Lax`, `Secure` khi production, TTL 8 giờ.
 - **Phân quyền**: mỗi API route gọi `authenticate(request, roles)`; `src/middleware.ts` chặn `/admin`, `/teacher`, `/student` trước khi render.
 - **Rate limit login**: đếm theo username+IP trong KV `RATE_LIMIT_KV` (fallback bộ nhớ isolate nếu thiếu binding).
-- **Webhook ngân hàng**: bắt buộc `x-webhook-secret` / `Authorization: Bearer` / `secure-token` khớp `BANK_WEBHOOK_SECRET`; mỗi `referenceCode` ghi một lần vào `bank_transactions` nên retry của cổng thanh toán không cộng tiền lần hai.
+- **Thu học phí**: không có webhook tự động và không có nút báo chuyển khoản. Học sinh chỉ xem mã VietQR + nội dung chuyển khoản, tự huỷ được hoá đơn chưa thanh toán của mình (`DELETE /api/finance?invoiceId=`). Quản trị đối soát sao kê rồi xác nhận qua `UPDATE_STATUS` (cho phép thu một phần bằng `paidAmount`). Chỉ ADMIN được ghi sổ.
 - **RLS**: `supabase/rls_lockdown.sql` chặn `anon`/`authenticated` trên mọi bảng, backend dùng `service_role`. Kiểm chứng: `node scripts/verify-rls.mjs`.
 - **Cache-Control**: HTML và API `private, no-store`; `/_next/static/*` immutable 1 năm (xem `public/_headers`).
 
@@ -54,14 +53,12 @@ Ba secret cuối không đặt trong `wrangler.toml`; production nạp bằng `w
 | RBAC | phiên học sinh gọi `GET/POST /api/users`, `PUT /api/teachers`, `POST /api/admin/reconcile` → 403 ✅ |
 | Đọc chéo hồ sơ | học sinh đọc hồ sơ mình 200, hồ sơ khác 403 ✅ |
 | Rate limit login | sai mật khẩu lần 5 trở đi → 429 ✅ |
-| Webhook sai secret | 401 ✅ |
 | Cache asset | `/_next/static/*` → `public, max-age=31536000, immutable` ✅ |
 | Cache HTML | `private, no-store` ✅ |
 | RLS | `anon` key đọc `users/students/tuition_invoices/audit_logs` → 401 `permission denied` ✅ |
-| Bảng `bank_transactions` | **thiếu** → webhook hợp lệ 500 `BANK_LEDGER_NOT_READY` ❌ |
 | Mật khẩu tài khoản | **13/17 user còn hash SHA-256 cũ (không salt)**; 12 tài khoản dùng mật khẩu đoán được, gồm 1 ADMIN `password123` ❌ |
 
-Hai mục ❌ cần xử lý phía vận hành: chạy migration `bank_transactions`, và đổi mật khẩu các tài khoản còn dùng `123456` / `password123`. Hash cũ chỉ được nâng cấp tự động sang PBKDF2 ở lần đăng nhập kế tiếp (`AuthService.needsRehash`), nhưng mật khẩu yếu thì phải đổi bằng tay.
+Mục ❌ cần xử lý phía vận hành: đổi mật khẩu các tài khoản còn dùng `123456` / `password123`. Hash cũ chỉ được nâng cấp tự động sang PBKDF2 ở lần đăng nhập kế tiếp (`AuthService.needsRehash`), nhưng mật khẩu yếu thì phải đổi bằng tay.
 
 ## Cơ sở dữ liệu
 
@@ -71,21 +68,14 @@ Hai mục ❌ cần xử lý phía vận hành: chạy migration `bank_transacti
 
 Thứ tự bắt buộc cho một database mới: `setup.sql` → `rls_lockdown.sql` → các `migration_*.sql` / `update_*.sql` theo ngày.
 
-**Còn thiếu trên production hiện tại:** `bank_transactions` chưa được tạo, nên webhook hợp lệ trả 500 kèm `code: BANK_LEDGER_NOT_READY`. Chạy:
-
-```bash
-# Supabase Dashboard → SQL Editor → dán nội dung file này
-supabase/migration_20261106_bank_transactions.sql
-```
-
 Tất cả script đều idempotent: chạy lại không mất dữ liệu.
 
 ## Kiểm tra
 
 ```bash
-npm test          # node:test trên LocalRepository → 147 test
+npm test          # node:test trên LocalRepository → 175 test
 npx tsc --noEmit  # typecheck
-npm run lint      # eslint, --max-warnings=367 (nợ hiện tại, không tăng)
+npm run lint      # eslint, --max-warnings=347 (nợ hiện tại, không tăng)
 npm run build     # build Next.js
 ```
 
@@ -110,7 +100,6 @@ Lần đầu trên một tài khoản Cloudflare mới:
 ```bash
 wrangler kv namespace create RATE_LIMIT_KV   # rồi dán id vào wrangler.toml
 wrangler secret put SESSION_SECRET
-wrangler secret put BANK_WEBHOOK_SECRET
 wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 ```
 
@@ -121,7 +110,7 @@ Cấu hình Worker ở `wrangler.toml`: `[observability] enabled = true` để l
 ```
 src/app/            route theo cổng (admin / teacher / student / api)
 src/components/     UI dùng chung và theo domain
-src/lib/            auth (session), cache (referenceCache), bank (webhookAuth), supabase
+src/lib/            auth (session), cache (referenceCache), supabase
 src/middleware.ts   chặn route theo role
 src/services/       logic nghiệp vụ
 src/repositories/   truy cập dữ liệu (local / supabase)

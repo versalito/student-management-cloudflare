@@ -40,7 +40,7 @@ jobs:
         run: npm test
 
       # Ngưỡng cảnh báo hiện có trong package.json là nợ kỹ thuật đã biết
-      # (--max-warnings=367); lỗi lint thật vẫn làm job đỏ.
+      # (--max-warnings=347); lỗi lint thật vẫn làm job đỏ.
       - name: Lint
         run: npm run lint
 

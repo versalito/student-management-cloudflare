@@ -128,11 +128,10 @@ export default function AdminAccountsPage() {
     e.preventDefault();
     if (!editingPasswordUser) return;
 
-    if (newPassword.length < 6) {
-      toast.error('Mật khẩu phải có tối thiểu 6 ký tự');
+    if (!newPassword) {
+      toast.error('Nhập mật khẩu mới');
       return;
     }
-
     if (newPassword !== confirmPassword) {
       toast.error('Xác nhận mật khẩu mới không khớp');
       return;
@@ -589,7 +588,7 @@ export default function AdminAccountsPage() {
           }
         >
           <form onSubmit={handleChangePassword} className="space-y-4 pt-1">
-            <Field label="Mật khẩu mới (tối thiểu 6 ký tự)" required>
+            <Field label="Mật khẩu mới" required>
               <Input
                 type="password"
                 required

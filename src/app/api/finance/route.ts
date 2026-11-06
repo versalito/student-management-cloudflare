@@ -1,12 +1,62 @@
 import { repo } from '@/repositories';
 import { NextResponse } from 'next/server';
 import { TuitionPayrollService } from '@/services/TuitionPayrollService';
-import { TuitionStatus } from '@/types/finance';
+import { TuitionStatus, TuitionInvoice } from '@/types/finance';
 import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
 const VALID_STATUSES: TuitionStatus[] = ['Đã nộp', 'Còn nợ', 'Quá hạn', 'Miễn giảm'];
+
+/** Khớp đúng check constraint tuition_invoices_payment_method_check trong DB. */
+const VALID_PAYMENT_METHODS = ['Chuyển khoản QR', 'Tiền mặt', 'Thẻ ngân hàng'] as const;
+
+interface StatusOverrideInput {
+  status: TuitionStatus;
+  paidAmount?: number | string;
+  paymentMethod?: TuitionInvoice['paymentMethod'];
+  paidDate?: string;
+  transactionCode?: string;
+}
+
+/**
+ * Áp một lần cập nhật thủ công lên hoá đơn (mutate tại chỗ).
+ * Dùng chung cho POST `action=UPDATE_STATUS` và PUT để hai đường không lệch nhau.
+ */
+function applyStatusOverride(invoice: TuitionInvoice, input: StatusOverrideInput): void {
+  const { status, paymentMethod, paidDate, transactionCode } = input;
+
+  if (status === 'Đã nộp') {
+    // Số tiền thực nhận: mặc định thu hết phần còn nợ. Nhập ít hơn -> ghi nhận thu một phần.
+    const received = Number(input.paidAmount);
+    const amountToApply = Number.isFinite(received) && received > 0
+      ? Math.min(received, invoice.remainingAmount)
+      : invoice.remainingAmount;
+
+    invoice.paidAmount = Math.min(invoice.amount, (invoice.paidAmount || 0) + amountToApply);
+    invoice.remainingAmount = invoice.amount - invoice.paidAmount;
+    invoice.status = invoice.remainingAmount === 0 ? 'Đã nộp' : 'Còn nợ';
+    invoice.paidDate = paidDate || new Date().toISOString().split('T')[0];
+    invoice.paymentMethod = paymentMethod || 'Tiền mặt';
+    invoice.transactionCode = transactionCode || `MANUAL-${Date.now()}`;
+  } else if (status === 'Còn nợ') {
+    invoice.paidAmount = 0;
+    invoice.remainingAmount = invoice.amount;
+    invoice.status = 'Còn nợ';
+    invoice.paidDate = undefined;
+    invoice.paymentMethod = undefined;
+    invoice.transactionCode = undefined;
+  } else if (status === 'Quá hạn') {
+    invoice.status = 'Quá hạn';
+    invoice.remainingAmount = invoice.amount - (invoice.paidAmount || 0);
+  } else if (status === 'Miễn giảm') {
+    invoice.status = 'Miễn giảm';
+    invoice.paidAmount = invoice.amount;
+    invoice.remainingAmount = 0;
+    invoice.paidDate = paidDate || new Date().toISOString().split('T')[0];
+    invoice.paymentMethod = paymentMethod || 'Tiền mặt';
+  }
+}
 
 /** Chuẩn hoá trạng thái cũ (DA_NOP/CON_NO) về giá trị tiếng Việt dùng thống nhất trên giao diện. */
 function normalizeInvoiceStatus<T extends { status: TuitionStatus }>(inv: T): T {
@@ -52,10 +102,10 @@ export async function POST(request: Request) {
     const financeService = new TuitionPayrollService(repo);
     const isStudent = auth.user.role === 'STUDENT';
 
-    // Học viên chỉ được tự mua gói và thanh toán hoá đơn của chính mình;
-    // mọi thao tác ghi sổ (tạo/sửa trạng thái/xoá) thuộc về quản trị.
+    // Học viên chỉ được tự mua gói và huỷ hoá đơn chưa thanh toán của chính mình;
+    // mọi thao tác ghi sổ (tạo/sửa trạng thái/thu tiền) thuộc về quản trị.
     if (isStudent) {
-      const ownScoped = body.action === 'PURCHASE_PACKAGE' || !body.action;
+      const ownScoped = body.action === 'PURCHASE_PACKAGE';
       if (!ownScoped) {
         return NextResponse.json({ error: 'Học viên không được ghi sổ học phí' }, { status: 403 });
       }
@@ -87,6 +137,11 @@ export async function POST(request: Request) {
           error: `Trạng thái không hợp lệ. Chỉ chấp nhận: ${VALID_STATUSES.join(', ')}` 
         }, { status: 400 });
       }
+      if (paymentMethod && !VALID_PAYMENT_METHODS.includes(paymentMethod)) {
+        return NextResponse.json({
+          error: `Phương thức thu không hợp lệ. Chỉ chấp nhận: ${VALID_PAYMENT_METHODS.join(', ')}`
+        }, { status: 400 });
+      }
 
       const invoice = await repo.getTuitionInvoiceById(invoiceId);
       if (!invoice) {
@@ -98,30 +153,7 @@ export async function POST(request: Request) {
         invoice.note = overrideReason;
       }
 
-      if (status === 'Đã nộp') {
-        invoice.paidAmount = invoice.amount;
-        invoice.remainingAmount = 0;
-        invoice.status = 'Đã nộp';
-        invoice.paidDate = paidDate || new Date().toISOString().split('T')[0];
-        invoice.paymentMethod = paymentMethod || 'Tiền mặt';
-        invoice.transactionCode = transactionCode || `MANUAL-${Date.now()}`;
-      } else if (status === 'Còn nợ') {
-        invoice.paidAmount = 0;
-        invoice.remainingAmount = invoice.amount;
-        invoice.status = 'Còn nợ';
-        invoice.paidDate = undefined;
-        invoice.paymentMethod = undefined;
-        invoice.transactionCode = undefined;
-      } else if (status === 'Quá hạn') {
-        invoice.status = 'Quá hạn';
-        invoice.remainingAmount = invoice.amount - (invoice.paidAmount || 0);
-      } else if (status === 'Miễn giảm') {
-        invoice.status = 'Miễn giảm';
-        invoice.paidAmount = invoice.amount;
-        invoice.remainingAmount = 0;
-        invoice.paidDate = paidDate || new Date().toISOString().split('T')[0];
-        invoice.paymentMethod = paymentMethod || 'Tiền mặt';
-      }
+      applyStatusOverride(invoice, { status, paidAmount: body.paidAmount, paymentMethod, paidDate, transactionCode });
 
       await repo.updateTuitionInvoice(invoice);
 
@@ -232,13 +264,17 @@ export async function POST(request: Request) {
       }, { status: 201 });
     }
 
-    // Luồng 2: Thanh toán học phí cũ
+    // Luồng: Quản trị thu tiền (xác nhận thủ công, hỗ trợ thu một phần)
+    if (auth.user.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Chỉ quản trị được ghi nhận thanh toán' }, { status: 403 });
+    }
+
     const { invoiceId, paymentAmount, paymentMethod, transactionCode } = body;
 
     const updated = await financeService.processPayment(
       invoiceId, 
       paymentAmount, 
-      paymentMethod || "Chuyển khoản QR", 
+      paymentMethod || "Tiền mặt", 
       transactionCode,
       { id: auth.user.id, name: auth.user.name, role: auth.user.role }
     );
@@ -250,7 +286,7 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const auth = await authenticate(request, ['ADMIN']);
+  const auth = await authenticate(request, ['ADMIN', 'STUDENT']);
   if (auth.response) return auth.response;
 
   try {
@@ -266,6 +302,10 @@ export async function DELETE(request: Request) {
     const invoice = await repo.getTuitionInvoiceById(invoiceId);
     if (!invoice) {
       return NextResponse.json({ success: false, error: 'Không tìm thấy hóa đơn học phí với mã ' + invoiceId }, { status: 404 });
+    }
+
+    if (auth.user.role === 'STUDENT' && !isSelfOrStaff(auth.user, invoice.studentId)) {
+      return NextResponse.json({ success: false, error: 'Không có quyền huỷ hoá đơn của học viên khác' }, { status: 403 });
     }
 
     if (invoice.paidAmount > 0) {
@@ -330,6 +370,11 @@ export async function PUT(request: Request) {
         error: `Trạng thái không hợp lệ. Chỉ chấp nhận: ${VALID_STATUSES.join(', ')}` 
       }, { status: 400 });
     }
+    if (paymentMethod && !VALID_PAYMENT_METHODS.includes(paymentMethod)) {
+      return NextResponse.json({
+        error: `Phương thức thu không hợp lệ. Chỉ chấp nhận: ${VALID_PAYMENT_METHODS.join(', ')}`
+      }, { status: 400 });
+    }
 
     const invoice = await repo.getTuitionInvoiceById(invoiceId);
     if (!invoice) {
@@ -341,30 +386,7 @@ export async function PUT(request: Request) {
       invoice.note = overrideReason;
     }
 
-    if (status === 'Đã nộp') {
-      invoice.paidAmount = invoice.amount;
-      invoice.remainingAmount = 0;
-      invoice.status = 'Đã nộp';
-      invoice.paidDate = paidDate || new Date().toISOString().split('T')[0];
-      invoice.paymentMethod = paymentMethod || 'Tiền mặt';
-      invoice.transactionCode = transactionCode || `MANUAL-${Date.now()}`;
-    } else if (status === 'Còn nợ') {
-      invoice.paidAmount = 0;
-      invoice.remainingAmount = invoice.amount;
-      invoice.status = 'Còn nợ';
-      invoice.paidDate = undefined;
-      invoice.paymentMethod = undefined;
-      invoice.transactionCode = undefined;
-    } else if (status === 'Quá hạn') {
-      invoice.status = 'Quá hạn';
-      invoice.remainingAmount = invoice.amount - (invoice.paidAmount || 0);
-    } else if (status === 'Miễn giảm') {
-      invoice.status = 'Miễn giảm';
-      invoice.paidAmount = invoice.amount;
-      invoice.remainingAmount = 0;
-      invoice.paidDate = paidDate || new Date().toISOString().split('T')[0];
-      invoice.paymentMethod = paymentMethod || 'Tiền mặt';
-    }
+    applyStatusOverride(invoice, { status, paidAmount: body.paidAmount, paymentMethod, paidDate, transactionCode });
 
     await repo.updateTuitionInvoice(invoice);
 

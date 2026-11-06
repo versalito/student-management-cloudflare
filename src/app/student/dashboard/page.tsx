@@ -14,6 +14,7 @@ import { Sheet } from '@/components/ui/Sheet';
 import { Field, Textarea } from '@/components/ui/Field';
 import { useToast } from '@/components/ui/Toast';
 import { getTodayDateStr } from '@/utils/date';
+import { useStudentCheckin } from '@/hooks/useStudentCheckin';
 import { formatSlotShortLabel } from '@/utils/schedule';
 import {
   CalendarDays,
@@ -54,31 +55,24 @@ export default function StudentDashboardPage() {
   const [finance, setFinance] = useState<any>(null);
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [checking, setChecking] = useState<string | null>(null);
-  const [badges, setBadges] = useState<Record<string, { status: string; time: string }>>({});
   const [absenceSlot, setAbsenceSlot] = useState<any | null>(null);
   const [absenceReason, setAbsenceReason] = useState('');
   const [requestSubmitting, setRequestSubmitting] = useState(false);
   const [swapSlot, setSwapSlot] = useState<any | null>(null);
   const [swapTargets, setSwapTargets] = useState<any[]>([]);
   const [swapLoading, setSwapLoading] = useState(false);
+  const {
+    sessionState,
+    setSessionState,
+    sessionMap,
+    checking,
+    checkinState,
+    handleCheckin,
+    refreshSessionState,
+  } = useStudentCheckin({ studentId: currentUser?.id, attendance });
 
-  const todayStr = getTodayDateStr();
-
-  const nowMinutes = () => {
-    const s = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Asia/Saigon',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).format(new Date());
-    const [h, m] = s.split(':').map(Number);
-    return h * 60 + m;
-  };
-  const toMinutes = (t: string) => {
-    const [h, m] = (t || '0:0').split(':').map(Number);
-    return (h || 0) * 60 + (m || 0);
-  };
+  // Ngày hôm nay lấy từ server để nhãn ngày không lệch theo đồng hồ máy.
+  const todayStr = sessionState?.today || getTodayDateStr();
 
   useEffect(() => {
     if (!isReady || !currentUser?.id) return;
@@ -91,87 +85,36 @@ export default function StudentDashboardPage() {
           return {};
         }
       };
-      const [st, sc, at, fi, rq] = await Promise.all([
+      const [st, sc, at, fi, rq, ss] = await Promise.all([
         safe(`/api/students?id=${currentUser.id}`),
         safe(`/api/schedule?studentId=${currentUser.id}`),
         safe(`/api/attendance?studentId=${currentUser.id}`),
         safe(`/api/finance?studentId=${currentUser.id}&summary=true`),
         safe(`/api/requests?studentId=${currentUser.id}`),
+        safe(`/api/student/session-state?studentId=${currentUser.id}`),
       ]);
       setStudent(st.student || null);
       setSlots(sc.slots || []);
       setAttendance(at.records || []);
       setFinance(fi || null);
       setRequests(rq.requests || []);
+      setSessionState(ss?.today ? ss : null);
       setLoading(false);
     })();
   }, [isReady, currentUser]);
 
+  const slotById = useMemo(() => new Map(slots.map((s) => [s.id, s])), [slots]);
+
+  /** Ca hôm nay + 5 ca kế tiếp đều do server chọn (đã sort, đúng lớp của HS). */
   const todaySlots = useMemo(
-    () =>
-      slots
-        .filter((s) => s.date === todayStr && s.status !== 'Đã hủy')
-        .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime)),
-    [slots, todayStr]
+    () => (sessionState?.todaySessions || []).map((s) => ({ ...slotById.get(s.id), ...s })),
+    [sessionState, slotById]
   );
 
   const upcoming = useMemo(
-    () =>
-      slots
-        .filter((s) => s.date > todayStr && s.status !== 'Đã hủy')
-        .sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime))
-        .slice(0, 5),
-    [slots, todayStr]
+    () => (sessionState?.upcoming || []).map((s) => ({ ...slotById.get(s.id), ...s })),
+    [sessionState, slotById]
   );
-
-  const checkinState = (slot: any) => {
-    const fresh = badges[slot.id];
-    if (fresh) return { type: 'done' as const, status: fresh.status, time: fresh.time };
-    const rec = attendance.find((a) => a.scheduleSlotId === slot.id && a.studentId === currentUser?.id);
-    if (rec) return { type: 'done' as const, status: rec.status, time: rec.checkinTime || '' };
-    const now = nowMinutes();
-    const start = toMinutes(slot.startTime);
-    const end = toMinutes(slot.endTime);
-    const overnight = start > end;
-    const open = overnight ? now >= start || now <= end : now >= start && now <= end;
-    if (open) return { type: 'open' as const };
-    if (now < start) return { type: 'closed' as const, reason: 'Chưa tới giờ' };
-    return { type: 'closed' as const, reason: 'Ca đã kết thúc' };
-  };
-
-  const handleCheckin = async (slot: any) => {
-    if (!currentUser?.id || checking) return;
-    setChecking(slot.id);
-    try {
-      const res = await fetch('/api/attendance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'STUDENT_CHECKIN',
-          studentId: currentUser.id,
-          scheduleSlotId: slot.id,
-        }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        const rec = data.record;
-        setBadges((p) => ({ ...p, [slot.id]: { status: rec?.status || 'Có mặt', time: rec?.checkinTime || '' } }));
-        toast.success(`Điểm danh xong: ${rec?.status || 'Có mặt'}${rec?.checkinTime ? ' lúc ' + rec.checkinTime : ''}`);
-      } else if (res.status === 409 && data.record) {
-        setBadges((p) => ({
-          ...p,
-          [slot.id]: { status: data.record.status, time: data.record.checkinTime || '' },
-        }));
-        toast.info('Ca này đã được điểm danh rồi.');
-      } else {
-        toast.error(data.error || 'Điểm danh chưa thành công, bạn thử lại nhé.');
-      }
-    } catch {
-      toast.error('Không kết nối được, bạn thử lại nhé.');
-    } finally {
-      setChecking(null);
-    }
-  };
 
   const openAbsence = (slot: any) => {
     setAbsenceSlot(slot);
@@ -297,16 +240,21 @@ export default function StudentDashboardPage() {
             ) : (
               todaySlots.map((slot) => {
                 const state = checkinState(slot);
+                const slotLabel = formatSlotShortLabel(slot);
                 return (
                   <Card key={slot.id} className="flex flex-col sm:flex-row sm:items-center gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <Badge tone="primary">{formatSlotShortLabel(slot)}</Badge>
-                        <span className="text-[13px] font-semibold text-muted-foreground tabular">
-                          {slot.startTime} – {slot.endTime}
-                        </span>
+                        <Badge tone="primary">{slotLabel}</Badge>
+                        {!slotLabel.includes('–') && (
+                          <span className="text-[13px] font-semibold text-muted-foreground tabular">
+                            {slot.startTime} – {slot.endTime}
+                          </span>
+                        )}
                       </div>
-                      <h3 className="text-base font-bold text-foreground mt-1.5">{slot.subject}</h3>
+                      <h3 className="text-base font-bold text-foreground mt-1.5">
+                        {sessionMap[slot.id]?.className || slot.className || slot.classId}
+                      </h3>
                       <div className="flex items-center gap-3 mt-1 text-[13px] text-muted-foreground flex-wrap">
                         <span className="inline-flex items-center gap-1">
                           <UserCheck size={13} /> GV {slot.teacherName || slot.teacherId}
@@ -423,9 +371,11 @@ export default function StudentDashboardPage() {
                         </span>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-[14px] font-bold text-foreground truncate">{slot.subject}</p>
+                        <p className="text-[14px] font-bold text-foreground truncate">
+                          {slot.className || slot.classId}
+                        </p>
                         <p className="text-[12px] text-muted-foreground tabular">
-                          {slot.startTime} – {slot.endTime}
+                          {slot.date.slice(8, 10)}/{slot.date.slice(5, 7)} · {slot.startTime} – {slot.endTime}
                         </p>
                       </div>
                       {slot.meetingLink && (

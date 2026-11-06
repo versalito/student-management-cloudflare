@@ -1,6 +1,7 @@
 import { repo } from '@/repositories';
 import { NextResponse } from 'next/server';
 import { ConflictEngine } from '@/services/ConflictEngine';
+import { resolveSlotTimeRange } from '@/utils/slotTime';
 import { loadScheduleView } from '@/services/ScheduleViewService';
 import { authenticate } from '@/lib/auth/session';
 
@@ -42,7 +43,24 @@ export async function POST(request: Request) {
       ? (await repo.getScheduleSlotsQuery({ date: body.date, excludeCancelled: true }))
         .map(({ className: _className, ...slot }) => slot)
       : undefined;
-    const conflictResult = await conflictEngine.checkScheduleConflict(body, body.id, sameDaySlots);
+    // Ghi ca học luôn phải có giờ: lấy giờ ca học → slot gửi lên → lớp → ca mẫu.
+    // Thiếu bước này thì slot lưu vào DB không có startTime/endTime và điểm danh
+    // sẽ tính sai cửa sổ giờ về sau.
+    const [slotSection, slotClass] = await Promise.all([
+      body.sectionId ? repo.getSectionById(body.sectionId) : Promise.resolve(null),
+      body.classId ? repo.getClassById(body.classId) : Promise.resolve(null),
+    ]);
+    const effectiveTimes = resolveSlotTimeRange({
+      sectionStartTime: slotSection?.startTime,
+      sectionEndTime: slotSection?.endTime,
+      slotStartTime: body.startTime,
+      slotEndTime: body.endTime,
+      classStartTime: slotClass?.startTime,
+      classEndTime: slotClass?.endTime,
+    });
+    const slotInput = { ...body, ...effectiveTimes };
+
+    const conflictResult = await conflictEngine.checkScheduleConflict(slotInput, body.id, sameDaySlots);
 
     if (conflictResult.hasConflict) {
       return NextResponse.json({ 
@@ -54,7 +72,7 @@ export async function POST(request: Request) {
 
     let saved;
     if (body.id) {
-      saved = await repo.updateScheduleSlot(body);
+      saved = await repo.updateScheduleSlot(slotInput);
       await repo.addAuditLog({
         action: 'UPDATE',
         userId: auth.user.id,
@@ -67,7 +85,7 @@ export async function POST(request: Request) {
     } else {
       const maxScheduleNumber = await repo.getMaxScheduleSlotNumber();
       const newId = `SCH${(maxScheduleNumber + 1).toString().padStart(4, '0')}`;
-      saved = await repo.createScheduleSlot({ ...body, id: newId });
+      saved = await repo.createScheduleSlot({ ...slotInput, id: newId });
       await repo.addAuditLog({
         action: 'CREATE',
         userId: auth.user.id,

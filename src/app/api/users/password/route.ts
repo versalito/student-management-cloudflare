@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 /**
  * Người dùng tự đổi mật khẩu của chính mình.
  * Bắt buộc nhập đúng mật khẩu hiện tại, để người khác không đổi được khi máy đang mở.
+ * Không áp đặt độ dài/độ phức tạp: trung tâm dùng mật khẩu ngắn, dễ đọc cho học viên.
  */
 export async function PUT(request: Request) {
   const auth = await authenticate(request, ['ADMIN','TEACHER','STUDENT']);
@@ -22,10 +23,6 @@ export async function PUT(request: Request) {
         { error: 'Vui lòng nhập đủ mật khẩu hiện tại và mật khẩu mới' },
         { status: 400 }
       );
-    }
-
-    if (String(newPassword).length < 6) {
-      return NextResponse.json({ error: 'Mật khẩu mới phải có tối thiểu 6 ký tự' }, { status: 400 });
     }
 
     if (String(newPassword) === String(currentPassword)) {

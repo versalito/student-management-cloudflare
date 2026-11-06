@@ -43,10 +43,16 @@ describe('Self-service Password Change Suite', () => {
     assert.ok(String(data.error).includes('hiện tại'));
   });
 
-  it('2. Mật khẩu mới ngắn hơn 6 ký tự thì bị từ chối', async () => {
+  it('2. Không áp đặt độ dài tối thiểu, nhưng mật khẩu rỗng thì bị từ chối', async () => {
     await ensureUser();
-    const res = await changePassword(req({ userId, currentPassword: 'matkhau_cu', newPassword: '123' }));
+    const res = await changePassword(req({ userId, currentPassword: 'matkhau_cu', newPassword: '' }));
     assert.equal(res.status, 400);
+
+    // Mật khẩu ngắn (4 ký tự) vẫn đổi được theo chính sách của trung tâm.
+    const ok = await changePassword(req({ userId, currentPassword: 'matkhau_cu', newPassword: '1234' }));
+    assert.equal(ok.status, 200);
+    const loggedIn = await auth.authenticate('st_pwd_01', '1234');
+    assert.equal(loggedIn?.id, userId);
   });
 
   it('3. Mật khẩu mới trùng mật khẩu hiện tại thì bị từ chối', async () => {

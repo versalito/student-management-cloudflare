@@ -38,7 +38,7 @@ devDeps: @opennextjs/cloudflare ^1.20.16 · wrangler ^4.148 · tsx · typescript
 | Build | `npm run build` |
 | Build worker | `npm run build:cf` (OpenNext) |
 | Test | `npm test` (`DATA_SOURCE=local node --import tsx --test tests/**/*.test.ts`) |
-| Lint | `npm run lint` (`eslint . --max-warnings=367`) |
+| Lint | `npm run lint` (`eslint . --max-warnings=347`) |
 | Deploy CF | `npm run deploy` (build opennext + wrangler deploy) |
 | Preview CF | `npm run preview` (workerd thật, có `caches.default` + KV) |
 | Đo hiệu năng | `./scripts/perf-probe.sh <base_url> [rounds] [p95_budget_ms]` |
@@ -60,14 +60,13 @@ src/
 │   ├── student/            # 7 trang: dashboard, classes, schedule, attendance,
 │   │                       #   tuition, requests, settings
 │   ├── login/              # đăng nhập
-│   └── api/                # 32 route (xem mục 5)
+│   └── api/                # 35 route (xem mục 5)
 ├── components/             # UI theo domain: admin, teacher, student, attendance,
 │   │                       #   tuition, common
 ├── context/AppContext.tsx  # state toàn cục
 ├── lib/
 │   ├── auth/session.ts     # ký/đọc cookie phiên HMAC (WebCrypto), authenticate()
 │   ├── cache/referenceCache.ts # cache tham chiếu ở edge + version key qua KV
-│   ├── bank/webhookAuth.ts # xác thực secret webhook ngân hàng (fail closed)
 │   └── supabase.ts         # Supabase client (service_role)
 ├── middleware.ts           # chặn /admin, /teacher, /student theo role trong cookie
 ├── repositories/           # Data-access layer
@@ -79,15 +78,20 @@ src/
 │   ├── AuthService · StudentService · ConflictEngine · BulkScheduleService
 │   ├── ShiftService · TuitionPayrollService · LedgerService
 │   ├── MonthlyPackageService · AuditService · ScheduleViewService · ProfileReconcileService
+│   ├── SlotTimeService      # giờ thật của buổi học: ca học → slot → lớp (một nguồn duy nhất)
+│   └── StudentSessionService # cửa sổ điểm danh + ca hiện tại/kế tiếp (server-side)
 ├── types/                  # type domain: student, teacher, classroom, schedule,
 │                           #   attendance, finance, package, ledger, bank, auth,
-│                           #   notification, audit, monthlyPackage
+│                           #   notification, audit, monthlyPackage, session
+├── hooks/
+│   └── useStudentCheckin.ts    # điểm danh HS dùng chung: TKB + dashboard
 └── utils/
+    └── rosterDiff.ts           # ghi danh lớp: chỉ áp phần chênh lệch
 
-tests/                      # 28 test files (node:test) + e2e-db-audit.ts
+tests/                      # 31 test files (node:test) + e2e-db-audit.ts
 supabase/setup.sql          # script dựng database từ đầu (idempotent)
 supabase/rls_lockdown.sql   # khoá anon/authenticated trên toàn bộ bảng
-supabase/migration_*.sql    # bản vá tăng dần (perf index, bank_transactions)
+supabase/migration_*.sql    # bản vá tăng dần (perf index)
 supabase/update_*.sql       # bản vá theo ngày
 scripts/                    # perf-probe.sh, verify-rls.mjs, reconcile-profiles.ts, audit-slot-weekdays.ts
 .github/workflows/ci.yml    # 2 job: verify + perf
@@ -106,7 +110,7 @@ scripts/                    # perf-probe.sh, verify-rls.mjs, reconcile-profiles.
 
 ---
 
-## 5. API Routes (src/app/api/) — 32 route
+## 5. API Routes (src/app/api/) — 35 route
 
 ```
 admin/reconcile/            POST  đối soát hồ sơ students/teachers thiếu
@@ -125,8 +129,8 @@ finance/expenses/           GET/POST
 finance/ledger/             GET
 notifications/              GET/POST
 packages/                   GET/POST/PUT/DELETE gói buổi
-payment/webhook/            POST webhook ngân hàng (secret + idempotent)
 payroll/                    GET/POST chấm công & lương
+payment/webhook/            POST trả 410 Gone (đã bỏ, giữ để tích hợp cũ biết)
 requests/                   GET/POST yêu cầu
 schedule/                   GET lịch
 schedule/bulk-daily-action/ POST
@@ -135,6 +139,9 @@ schedule/bulk-update-future/ POST
 settings/bank/              GET/PUT cấu hình VietQR
 shifts/                     GET/POST/PUT/DELETE
 students/                   GET (phân trang)/POST
+student/bookings/           GET/POST/DELETE buổi lẻ học sinh tự đặt
+student/slots/              GET  các buổi lẻ còn đăng ký được (kèm cờ trùng giờ)
+student/session-state/      GET  ca hiện tại/kế tiếp + canCheckIn của 1 HS
 students/[id]/              GET/PUT/DELETE
 student/swap/               POST đổi ca
 teacher-checkin/            POST
@@ -143,16 +150,16 @@ users/                      GET/POST/PUT/DELETE
 users/password/             PUT
 ```
 
-Mọi route gọi `authenticate(request, roles)` trước khi chạm dữ liệu; webhook dùng `webhookAuth`; mọi route ghi đều ghi audit log với actor lấy từ phiên (không hardcode).
+Mọi route gọi `authenticate(request, roles)` trước khi chạm dữ liệu; mọi route ghi đều ghi audit log với actor lấy từ phiên (không hardcode).
 
 ---
 
 ## 6. Miền nghiệp vụ chính
 
 1. **Phân quyền**: 3 role — `admin` / `teacher` / `student`, mỗi role có portal riêng, chặn ở middleware + ở từng route.
-2. **Lớp học & lịch**: class, classroom, schedule slot, shift, bulk schedule.
+2. **Lớp học & lịch**: class, class_sections (1 lớp nhiều ca), schedule slot, shift, bulk schedule. Học sinh đặt **buổi lẻ** (`student_session_bookings`) — buổi đặt lẻ vào thẳng TKB với badge "Lịch lẻ", huỷ được trước giờ bắt đầu.
 3. **Điểm danh (attendance)**: session theo giờ thực, timezone `Asia/Saigon`, analytics.
-4. **Học phí & lương (finance)**: tuition invoice, payroll/`sessionRate`, ledger, expense, VietQR webhook, monthly package, monthly rollover.
+4. **Học phí & lương (finance)**: tuition invoice, payroll/`sessionRate`, ledger, expense, mã VietQR để học sinh tự chuyển khoản (quản trị đối soát sao kê rồi xác nhận thủ công, **không có webhook/báo chuyển khoản tự động**), monthly package, monthly rollover.
 5. **Conflict Engine**: phát hiện trùng lịch real-time. **Lưu ý:** model 100% online — 1 GV có thể dạy nhiều lớp cùng lúc, KHÔNG chặn teacher-conflict.
 6. **Discord bot**: điểm danh qua Discord, orientation room, cron.
 7. **Hệ thống phụ**: notification, request, audit log, milestone/package.
@@ -177,15 +184,14 @@ Mọi route gọi `authenticate(request, roles)` trước khi chạm dữ liệu
 
 ## 7b. Trạng thái production & nợ kỹ thuật (2026-11-06)
 
-Đã kiểm chứng trên worker thật (không phải suy luận): chặn route theo role, 401 cho API thiếu phiên, 403 khi leo quyền, rate limit login 429 sau 5 lần sai, webhook sai secret 401, `/_next/static/*` immutable, HTML `no-store`, RLS chặn `anon` trên mọi bảng.
+Đã kiểm chứng trên worker thật (không phải suy luận): chặn route theo role, 401 cho API thiếu phiên, 403 khi leo quyền, rate limit login 429 sau 5 lần sai, `/_next/static/*` immutable, HTML `no-store`, RLS chặn `anon` trên mọi bảng.
 
 Nợ mở, cần xử lý phía vận hành:
 
 | Việc | Chi tiết |
 |---|---|
-| Tạo `bank_transactions` | Chưa có trên DB production. Webhook trả 500 `code: BANK_LEDGER_NOT_READY`. Chạy `supabase/migration_20261106_bank_transactions.sql`. |
 | Đổi mật khẩu yếu | 13/17 user còn hash SHA-256 không salt; 12 tài khoản dùng `123456`/`password123`, trong đó 1 ADMIN. Hash tự nâng cấp sang PBKDF2 ở lần login kế tiếp, mật khẩu thì không. |
-| Nợ lint | `npm run lint` đang `--max-warnings=367` (đã dùng đúng trần). Muốn giảm phải sửa cảnh báo, không được nâng trần để CI xanh. |
+| Nợ lint | `npm run lint` đang `--max-warnings=347` (đã dùng đúng trần). Muốn giảm phải sửa cảnh báo, không được nâng trần để CI xanh. |
 
 ---
 
@@ -221,8 +227,8 @@ Nợ mở, cần xử lý phía vận hành:
 | State toàn cục | `src/context/AppContext.tsx` |
 | Phiên / phân quyền | `src/lib/auth/session.ts`, `src/middleware.ts` |
 | Cache tham chiếu | `src/lib/cache/referenceCache.ts` |
-| Webhook ngân hàng | `src/app/api/payment/webhook/route.ts`, `src/lib/bank/webhookAuth.ts` |
+| Thu học phí (báo chuyển khoản + đối soát) | `src/app/api/finance/route.ts`, `src/app/admin/tuition/page.tsx`, `src/app/student/tuition/page.tsx` |
 
 ---
 
-_Cập nhật lần cuối: 2026-11-06 — sau Phase 1/2 (auth, webhook, cache, CI, deploy)._
+_Cập nhật lần cuối: 2026-11-06 — bỏ webhook ngân hàng, chuyển sang báo chuyển khoản + quản trị đối soát._

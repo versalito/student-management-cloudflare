@@ -16,12 +16,13 @@ import { Student } from '@/types/student';
 import { Teacher } from '@/types/teacher';
 import { ClassEntity, ClassSection } from '@/types/classroom';
 import { bumpReferenceVersion, REFERENCE_CACHE_SCOPE } from '@/lib/cache/referenceCache';
+import { diffRoster } from '@/utils/rosterDiff';
 import { ScheduleSlot, ClassRequest, TimeShift, StudentSlotSwap } from '@/types/schedule';
 import { AttendanceRecord } from '@/types/attendance';
 import { TuitionInvoice, PayrollRecord } from '@/types/finance';
 import { SessionPackage } from '@/types/package';
 import { AuditLog } from '@/types/audit';
-import { BankTransaction } from '@/types/bank';
+import { SessionBookingFilter, StudentSessionBooking } from '@/types/booking';
 import { AppNotification } from '@/types/notification';
 import { getSupabaseAdminClient } from '@/lib/supabase';
 import { dateToDayOfWeek } from '@/utils/date';
@@ -530,6 +531,26 @@ function mapSessionPackageToDb(pkg: SessionPackage): any {
     price: pkg.price,
     description: pkg.description || null,
     is_active: pkg.isActive,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function mapSessionBookingFromDb(row: any): StudentSessionBooking {
+  return {
+    id: row.id,
+    studentId: row.student_id,
+    slotId: row.slot_id,
+    status: row.status,
+    createdAt: row.created_at || '',
+    updatedAt: row.updated_at || '',
+  };
+}
+
+function mapSessionBookingToDb(booking: StudentSessionBooking): any {
+  return {
+    student_id: booking.studentId,
+    slot_id: booking.slotId,
+    status: booking.status,
     updated_at: new Date().toISOString(),
   };
 }
@@ -1115,13 +1136,35 @@ export class SupabaseRepository implements IRepository {
         throw new Error(updateErr.message);
       }
 
-      await client.from('class_students').delete().eq('class_id', classEntity.id);
-      if (classEntity.studentIds && classEntity.studentIds.length > 0) {
-        const relationRows = classEntity.studentIds.map(stId => ({
-          class_id: classEntity.id,
-          student_id: stId,
-        }));
-        await client.from('class_students').insert(relationRows);
+      // Ghi danh theo lớp: chỉ áp phần chênh lệch. Xoá-rồi-chèn toàn bộ roster
+      // làm cả lớp mất sạch học sinh nếu bước chèn lỗi (mạng/RLS), và tạo cửa sổ
+      // bảng class_students trống — TKB/điểm danh đọc đúng lúc đó sẽ thấy lớp
+      // không có ai. Chỉ ghi delta thì các dòng không đổi vẫn nguyên.
+      const { data: currentRows, error: rosterErr } = await client
+        .from('class_students')
+        .select('student_id')
+        .eq('class_id', classEntity.id);
+      if (rosterErr) throw new Error(rosterErr.message);
+
+      const { toAdd, toRemove } = diffRoster(
+        classEntity.studentIds || [],
+        (currentRows || []).map((r: any) => r.student_id)
+      );
+
+      if (toRemove.length > 0) {
+        // delete().in() không đụng các dòng Roster khác của lớp khác.
+        const { error: delErr } = await client
+          .from('class_students')
+          .delete()
+          .eq('class_id', classEntity.id)
+          .in('student_id', toRemove);
+        if (delErr) throw new Error(delErr.message);
+      }
+      if (toAdd.length > 0) {
+        const { error: insErr } = await client
+          .from('class_students')
+          .insert(toAdd.map((stId) => ({ class_id: classEntity.id, student_id: stId })));
+        if (insErr) throw new Error(insErr.message);
       }
 
       return classEntity;
@@ -1385,6 +1428,61 @@ export class SupabaseRepository implements IRepository {
   }
 
   // --------------------------------------------------------------------------
+  // DANG KY BUOI LE (student_session_bookings)
+  // --------------------------------------------------------------------------
+
+  public async getSessionBookings(filter: SessionBookingFilter = {}): Promise<StudentSessionBooking[]> {
+    const client = this.getClient();
+    if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
+    if (filter.slotIds && filter.slotIds.length === 0) return [];
+
+    try {
+      let q = client
+        .from('student_session_bookings')
+        .select('id, student_id, slot_id, status, created_at, updated_at')
+        .order('created_at', { ascending: true });
+
+      if (filter.studentId) q = q.eq('student_id', filter.studentId);
+      if (filter.slotId) q = q.eq('slot_id', filter.slotId);
+      if (filter.slotIds) q = q.in('slot_id', filter.slotIds);
+      if (filter.statuses) q = q.in('status', filter.statuses);
+
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      return (data || []).map(mapSessionBookingFromDb);
+    } catch (err) {
+      throw err;
+    }
+  }
+
+  public async createSessionBooking(booking: StudentSessionBooking): Promise<StudentSessionBooking> {
+    const client = this.getClient();
+    if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
+
+    const { data, error } = await client
+      .from('student_session_bookings')
+      .insert({ ...mapSessionBookingToDb(booking), id: booking.id })
+      .select('id, student_id, slot_id, status, created_at, updated_at')
+      .single();
+    if (error) throw new Error(error.message);
+    return mapSessionBookingFromDb(data);
+  }
+
+  public async updateSessionBooking(booking: StudentSessionBooking): Promise<StudentSessionBooking> {
+    const client = this.getClient();
+    if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
+
+    const { data, error } = await client
+      .from('student_session_bookings')
+      .update(mapSessionBookingToDb(booking))
+      .eq('id', booking.id)
+      .select('id, student_id, slot_id, status, created_at, updated_at')
+      .single();
+    if (error) throw new Error(error.message);
+    return mapSessionBookingFromDb(data);
+  }
+
+  // --------------------------------------------------------------------------
   // SCHEDULE
   // --------------------------------------------------------------------------
 
@@ -1435,6 +1533,7 @@ export class SupabaseRepository implements IRepository {
       if (query.date) q = q.eq('date', query.date);
       if (query.dateFrom) q = q.gte('date', query.dateFrom);
       if (query.dateTo) q = q.lte('date', query.dateTo);
+      if (query.ids) q = q.in('id', query.ids);
       if (query.classId) q = q.eq('class_id', query.classId);
       if (query.classIds) q = q.in('class_id', query.classIds);
       if (query.teacherId) q = q.eq('teacher_id', query.teacherId);
@@ -2446,81 +2545,6 @@ export class SupabaseRepository implements IRepository {
   }
 
   // --------------------------------------------------------------------------
-  // SO GIAO DICH NGAN HANG (chong xu ly trung webhook)
-  // --------------------------------------------------------------------------
-
-  /**
-   * Ghi nhan giao dich theo khoa chinh `reference_code`.
-   * `insert` (khong phai `upsert`) de database tu choi ban trung: 23505 = da xu ly.
-   */
-  public async claimBankTransaction(tx: BankTransaction): Promise<BankTransaction | null> {
-    const client = this.getClient();
-    if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
-
-    const row = {
-      reference_code: tx.referenceCode,
-      gateway: tx.gateway,
-      transfer_amount: tx.transferAmount,
-      content: tx.content,
-      applied_amount: tx.appliedAmount,
-      invoice_ids: tx.invoiceIds,
-      student_id: tx.studentId || null,
-      result_status: tx.resultStatus,
-      result_message: tx.resultMessage,
-      received_at: tx.receivedAt || new Date().toISOString(),
-    };
-
-    const { error } = await client.from('bank_transactions').insert(row);
-    if (error) {
-      // 23505 = unique_violation -> giao dich nay da duoc xu ly truoc do.
-      if (error.code === '23505') return null;
-      throw new Error(error.message);
-    }
-    return { ...tx, receivedAt: row.received_at };
-  }
-
-  public async getBankTransaction(referenceCode: string): Promise<BankTransaction | null> {
-    const client = this.getClient();
-    if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
-
-    const { data, error } = await client
-      .from('bank_transactions')
-      .select('*')
-      .eq('reference_code', referenceCode)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!data) return null;
-    return {
-      referenceCode: data.reference_code,
-      gateway: data.gateway,
-      transferAmount: Number(data.transfer_amount) || 0,
-      content: data.content || '',
-      appliedAmount: Number(data.applied_amount) || 0,
-      invoiceIds: data.invoice_ids || '',
-      studentId: data.student_id || undefined,
-      resultStatus: Number(data.result_status) || 0,
-      resultMessage: data.result_message || '',
-      receivedAt: data.received_at || undefined,
-    };
-  }
-
-  public async finishBankTransaction(referenceCode: string, patch: Partial<BankTransaction>): Promise<void> {
-    const client = this.getClient();
-    if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
-
-    const row: Record<string, unknown> = {};
-    if (patch.appliedAmount !== undefined) row.applied_amount = patch.appliedAmount;
-    if (patch.invoiceIds !== undefined) row.invoice_ids = patch.invoiceIds;
-    if (patch.studentId !== undefined) row.student_id = patch.studentId || null;
-    if (patch.resultStatus !== undefined) row.result_status = patch.resultStatus;
-    if (patch.resultMessage !== undefined) row.result_message = patch.resultMessage;
-    if (Object.keys(row).length === 0) return;
-
-    const { error } = await client.from('bank_transactions').update(row).eq('reference_code', referenceCode);
-    if (error) throw new Error(error.message);
-  }
-
-  // --------------------------------------------------------------------------
   // XOA DU LIEU (khong chen lai du lieu mau)
   // --------------------------------------------------------------------------
 
@@ -2530,16 +2554,11 @@ export class SupabaseRepository implements IRepository {
       throw new Error('Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local');
     }
 
-    // bank_transactions không có cột id -> xoá theo khoá chính riêng.
-    const { error: bankError } = await client.from('bank_transactions').delete().neq('reference_code', '___PLACEHOLDER___');
-    if (bankError) {
-      throw new Error(`Khong the xoa du lieu bang bank_transactions: ${bankError.message}`);
-    }
-
     const tables = [
       'audit_logs',
       'notifications',
       'attendance_records',
+      'student_session_bookings',
       'class_requests',
       'tuition_invoices',
       'teacher_payroll_periods',

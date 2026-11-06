@@ -8,7 +8,7 @@ import { AttendanceRecord } from '@/types/attendance';
 import { TuitionInvoice, PayrollRecord } from '@/types/finance';
 import { SessionPackage } from '@/types/package';
 import { AuditLog } from '@/types/audit';
-import { BankTransaction } from '@/types/bank';
+import { SessionBookingFilter, StudentSessionBooking } from '@/types/booking';
 
 /**
  * Bộ lọc cho truy vấn ca học. Dùng để đẩy điều kiện xuống tầng dữ liệu
@@ -23,6 +23,8 @@ export interface ScheduleSlotQuery {
   teacherId?: string;
   /** Chỉ lấy buổi thuộc các ca này (ca = lớp + khung giờ; học sinh học theo ca). */
   sectionIds?: string[];
+  /** Chỉ lấy đúng các buổi này (dùng cho đăng ký buổi lẻ). */
+  ids?: string[];
   /**
    * Khi lọc theo `sectionIds`: vẫn lấy các buổi cũ chưa gán ca (`section_id IS NULL`)
    * của những lớp trong `classIds`, đúng như hành vi portal học sinh.
@@ -33,6 +35,10 @@ export interface ScheduleSlotQuery {
 
 export interface ScheduleSlotWithClassName extends ScheduleSlot {
   className?: string;
+  /** 'class' = buổi của ca học sinh đang theo; 'booking' = buổi lẻ học sinh tự đặt. */
+  source?: 'class' | 'booking';
+  /** Mã bản ghi đăng ký buổi lẻ (chỉ có khi `source === 'booking'`). */
+  bookingId?: string;
 }
 
 export interface ClassMembership {
@@ -159,6 +165,11 @@ export interface IRepository {
   createScheduleSlotsBatch(slots: ScheduleSlot[]): Promise<ScheduleSlot[]>;
   updateScheduleSlotsBatch(slots: ScheduleSlot[]): Promise<ScheduleSlot[]>;
 
+  // Đăng ký buổi lẻ
+  getSessionBookings(filter?: SessionBookingFilter): Promise<StudentSessionBooking[]>;
+  createSessionBooking(booking: StudentSessionBooking): Promise<StudentSessionBooking>;
+  updateSessionBooking(booking: StudentSessionBooking): Promise<StudentSessionBooking>;
+
   // Attendance
   getAttendanceBySlotId(slotId: string): Promise<AttendanceRecord[]>;
   getAttendanceByStudentId(studentId: string): Promise<AttendanceRecord[]>;
@@ -220,14 +231,4 @@ export interface IRepository {
   // App Settings (key -> jsonb), dùng lưu cấu hình ngân hàng nhận học phí
   getAppSetting<T = any>(key: string): Promise<T | null>;
   setAppSetting(key: string, value: any): Promise<void>;
-
-  // Sổ giao dịch ngân hàng — chống xử lý trùng webhook
-  /**
-   * Ghi nhận một giao dịch vào sổ. Trả về `null` nếu `referenceCode` đã tồn tại
-   * (giao dịch trùng) — bên gọi phải dừng, không được cộng tiền lần hai.
-   */
-  claimBankTransaction(tx: BankTransaction): Promise<BankTransaction | null>;
-  getBankTransaction(referenceCode: string): Promise<BankTransaction | null>;
-  /** Cập nhật kết quả cuối cùng sau khi đã gạch nợ xong. */
-  finishBankTransaction(referenceCode: string, patch: Partial<BankTransaction>): Promise<void>;
 }

@@ -139,6 +139,19 @@ create table if not exists public.schedule_slots (
     constraint schedule_slots_checkin_method_check check (checkin_method is null or checkin_method in ('TEACHER_SELF', 'ADMIN', 'SYSTEM'))
 );
 
+-- Đăng ký buổi lẻ: học sinh đặt một buổi cụ thể, không theo ca dài hạn
+create table if not exists public.student_session_bookings (
+    id         varchar(50) primary key,
+    student_id varchar(50) not null references public.students(id) on delete cascade,
+    slot_id    varchar(50) not null references public.schedule_slots(id) on delete cascade,
+    status     varchar(20) not null default 'Đã đăng ký',
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    constraint student_session_bookings_status_check
+        check (status in ('Đã đăng ký', 'Đã hủy', 'Đã học')),
+    constraint student_session_bookings_unique unique (student_id, slot_id)
+);
+
 -- Điểm danh từng học sinh trong từng buổi
 create table if not exists public.attendance_records (
     id               varchar(50) primary key,
@@ -199,20 +212,6 @@ create table if not exists public.tuition_invoices (
     updated_at       timestamptz not null default now(),
     constraint tuition_invoices_status_check check (status in ('Đã nộp', 'Còn nợ', 'Quá hạn', 'Miễn giảm', 'Đã hủy', 'DA_NOP', 'CON_NO')),
     constraint tuition_invoices_payment_method_check check (payment_method is null or payment_method in ('Chuyển khoản QR', 'Tiền mặt', 'Thẻ ngân hàng'))
-);
-
--- Sổ giao dịch ngân hàng: khoá chống xử lý trùng webhook thanh toán
-create table if not exists public.bank_transactions (
-    reference_code  varchar(120)   primary key,
-    gateway         varchar(60)    not null default 'BANK_GATEWAY',
-    transfer_amount numeric(14,2)  not null default 0,
-    content         text,
-    applied_amount  numeric(14,2)  not null default 0,
-    invoice_ids     text,
-    student_id      varchar(50),
-    result_status   integer        not null default 0,
-    result_message  text,
-    received_at     timestamptz    not null default now()
 );
 
 -- Bảng lương giáo viên theo tháng
@@ -444,6 +443,9 @@ create index if not exists idx_attendance_slot_id       on public.attendance_rec
 create index if not exists idx_attendance_class_id      on public.attendance_records (class_id);
 create index if not exists idx_attendance_student_id    on public.attendance_records (student_id);
 create index if not exists idx_attendance_date          on public.attendance_records (date);
+create index if not exists idx_session_bookings_student on public.student_session_bookings (student_id);
+create index if not exists idx_session_bookings_slot    on public.student_session_bookings (slot_id);
+create index if not exists idx_session_bookings_status  on public.student_session_bookings (status);
 create index if not exists idx_class_requests_student_id on public.class_requests (student_id);
 create index if not exists idx_class_requests_class_id  on public.class_requests (class_id);
 create index if not exists idx_class_requests_status    on public.class_requests (status);
@@ -562,7 +564,7 @@ alter table public.audit_logs             enable row level security;
 alter table public.notifications          enable row level security;
 alter table public.session_packages       enable row level security;
 alter table public.time_shifts            enable row level security;
-alter table public.bank_transactions      enable row level security;
+alter table public.student_session_bookings enable row level security;
 
 -- ============================================================================
 -- 7. DỮ LIỆU DANH MỤC NỀN

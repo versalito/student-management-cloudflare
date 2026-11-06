@@ -26,6 +26,7 @@ const DEFAULT_TABLES = [
   'notifications',
   'schedule_slots',
   'session_packages',
+  'student_session_bookings',
   'student_slot_swaps',
   'students',
   'teacher_payroll_periods',

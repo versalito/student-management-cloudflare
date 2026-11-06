@@ -11,6 +11,7 @@ import { SearchInput } from '@/components/ui/SearchInput';
 import { Sheet } from '@/components/ui/Sheet';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useToast } from '@/components/ui/Toast';
+import { ExtraSessionsPanel } from '@/components/student/ExtraSessionsPanel';
 import { ClassEntity, ClassSection } from '@/types/classroom';
 import { TimeShift, TIME_SHIFTS } from '@/types/schedule';
 import { getClassTimeRange } from '@/utils/schedule';
@@ -732,6 +733,9 @@ export default function StudentClassesPage() {
                   </div>
                 )}
               </section>
+
+              {/* Buổi lẻ: học từng buổi của lớp đang mở */}
+              {currentUser?.id && <ExtraSessionsPanel studentId={currentUser.id} />}
 
               {/* Lớp đang mở */}
               <section className="space-y-3">

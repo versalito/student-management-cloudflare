@@ -91,8 +91,8 @@ Bảng dưới là nguồn sự thật cho phạm vi tính năng. Khi thêm tín
 |---|-----------|--------------|------------|-----------|
 | 1 | Tài khoản & phân quyền | admin, teacher, student, parent | profiles, roles | TODO |
 | 2 | Hồ sơ học sinh | admin, teacher | students, guardians | TODO |
-| 3 | Lớp học & ca học (class_sections) | admin, teacher, student | classes, class_sections, class_section_students | in-progress |
-| 4 | Giáo viên & phân công theo ca | admin, teacher | teachers, assignments, class_sections.teacher_id | in-progress |
+| 3 | Lớp học & ca học (class_sections) | admin, teacher, student | classes, class_sections, class_section_students | done |
+| 4 | Giáo viên & phân công theo ca | admin, teacher | teachers, assignments, class_sections.teacher_id | done |
 | 5 | Môn học & thời khóa biểu | admin, teacher | subjects, timetable | TODO |
 | 6 | Điểm số & học bạ | teacher, student, parent | grades, terms | TODO |
 | 7 | Điểm danh học sinh | admin, teacher | attendance, schedule_slots | done |
@@ -101,6 +101,7 @@ Bảng dưới là nguồn sự thật cho phạm vi tính năng. Khi thêm tín
 | 10 | Báo cáo & dashboard | admin | view tổng hợp | TODO |
 | 11 | Audit log | admin | audit_logs | done |
 | 12 | Chấm công giáo viên theo ca | teacher, admin | schedule_slots (checkin_time, checkout_time, checkin_status, checkin_method, checkin_note) | done |
+| 13 | Đặt buổi lẻ (không mua gói) | student | student_session_bookings, schedule_slots | done |
 
 Đổi `TODO` thành `in-progress` hoặc `done` khi làm. Giữ đúng thứ tự ưu tiên triển khai.
 
@@ -125,6 +126,20 @@ Chi tiết từng quy trình: [references/feature-workflow.md](references/featur
 - Mọi bảng mới phải có `id`, `created_at`, `updated_at` và bật RLS.
 - Tên bảng/cột dùng snake_case; tên component PascalCase.
 - Không hardcode URL hay key; dùng biến môi trường và `wrangler.toml`/`wrangler.jsonc`.
+- Giờ của một buổi học chỉ được tính qua `src/utils/slotTime.ts` (`resolveSlotTimeRange`) và
+  `SlotTimeService` phía server: thứ tự ca học → slot → lớp. Không đọc thẳng `slot.startTime`
+  ở route/handler vì slot cũ có thể thiếu giờ, khiến nút UI và API bất đồng.
+- Cửa sổ điểm danh chỉ do server quyết định (`StudentSessionService` → `GET /api/student/session-state`).
+  Client hiển thị `canCheckIn` + `reason`; không tự so `new Date()` để bật/tắt nút.
+- Điểm danh tự phục vụ của học sinh dùng `src/hooks/useStudentCheckin.ts` cho cả dashboard và TKB —
+  đừng viết lại logic POST/409/badge ở từng trang.
+- Ghi danh lớp (`updateClass`) chỉ áp phần chênh lệch qua `diffRoster`; không xoá-rồi-chèn toàn bộ
+  `class_students` (làm lớp trống tạm thời và mất dữ liệu khi bước chèn lỗi).
+- TKB của học sinh không hiển thị buổi của lớp `Đã kết thúc` (lọc trong `ScheduleViewService`,
+  không lọc ở client).
+- Buổi lẻ do `ScheduleViewService` gắn `source: 'booking'` + `bookingId`; TKB chỉ hiện badge
+  "Lịch lẻ" và nút Huỷ (gọi `DELETE /api/student/bookings`) khi có `source === 'booking'`.
+  Server chặn huỷ sau giờ bắt đầu — client chỉ phản ánh, không tự quyết định.
 
 ## Bảo mật & dữ liệu
 

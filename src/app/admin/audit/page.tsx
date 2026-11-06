@@ -10,18 +10,8 @@ import { Badge } from '@/components/ui/Badge';
 import { Card, StatCard } from '@/components/ui/Card';
 import { Sheet } from '@/components/ui/Sheet';
 import { Button } from '@/components/ui/Button';
-import { AuditLog, AuditAction } from '@/types/audit';
-import {
-  History,
-  Shield,
-  Activity,
-  CalendarCheck,
-  CreditCard,
-  FileCheck,
-  User,
-  Clock,
-  Laptop,
-} from 'lucide-react';
+import { AuditLog } from '@/types/audit';
+import { History, Activity, CalendarCheck, CreditCard } from 'lucide-react';
 
 const ACTION_LABELS: Record<string, { label: string; tone: 'neutral' | 'primary' | 'success' | 'warning' | 'danger' | 'info' }> = {
   ALL: { label: 'Tất cả', tone: 'neutral' },
@@ -32,10 +22,12 @@ const ACTION_LABELS: Record<string, { label: string; tone: 'neutral' | 'primary'
   LOGIN: { label: 'Đăng nhập', tone: 'neutral' },
   ATTENDANCE_CHECK: { label: 'Điểm danh', tone: 'primary' },
   SCHEDULE_CHANGE: { label: 'Đổi lịch', tone: 'warning' },
-  PAYMENT_PROCESS: { label: 'Thanh toán', tone: 'success' },
+  PAYMENT_PROCESS: { label: 'Xác nhận thu tiền', tone: 'success' },
   PACKAGE_PURCHASE: { label: 'Mua gói', tone: 'primary' },
   CANCEL_INVOICE: { label: 'Hủy gói', tone: 'danger' },
   REQUEST_DECIDE: { label: 'Duyệt đơn', tone: 'primary' },
+  SESSION_BOOKED: { label: 'Đặt buổi lẻ', tone: 'primary' },
+  SESSION_BOOKING_CANCELLED: { label: 'Huỷ buổi lẻ', tone: 'warning' },
 };
 
 function formatDateTime(isoStr: string) {
@@ -123,6 +115,8 @@ export default function AdminAuditPage() {
       'SCHEDULE_CHANGE',
       'PAYMENT_PROCESS',
       'REQUEST_DECIDE',
+      'SESSION_BOOKED',
+      'SESSION_BOOKING_CANCELLED',
       'CREATE',
       'UPDATE',
       'DELETE',
@@ -135,7 +129,6 @@ export default function AdminAuditPage() {
     }));
   }, [counts]);
 
-  const totalPages = Math.ceil(total / pageSize) || 1;
   const paginatedLogs = logs;
 
   const handleSearchChange = (val: string) => {

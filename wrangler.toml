@@ -37,4 +37,3 @@ id = "4c6448c8a9c44b0e88d569c08ef29ddd"
 # (hoặc .dev.vars khi chạy local). Không commit khóa vào repo công khai:
 #   SUPABASE_SERVICE_ROLE_KEY  — khoá service_role của Supabase
 #   SESSION_SECRET             — ký cookie phiên (>= 32 ký tự)
-#   BANK_WEBHOOK_SECRET        — secret chia sẻ với cổng thanh toán (>= 32 ký tự)

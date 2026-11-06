@@ -1,7 +1,7 @@
 import { getTodayDateStr } from '@/utils/date';
 import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
-import { ScheduleSlot } from '@/types/schedule';
+import { loadScheduleView } from '@/services/ScheduleViewService';
 import { AttendanceRecord } from '@/types/attendance';
 import { authenticate } from '@/lib/auth/session';
 
@@ -22,12 +22,11 @@ export async function GET(request: Request) {
 
   try {
     const { searchParams } = new URL(request.url);
-    const dateParam = searchParams.get('date');
     const teacherId = searchParams.get('teacherId');
 
     const now = new Date();
     // Lấy ngày và giờ chuẩn xác theo múi giờ Việt Nam (Asia/Saigon)
-    const today = dateParam || getTodayDateStr();
+    const today = getTodayDateStr();
     const nowTime = new Intl.DateTimeFormat('en-GB', {
       timeZone: 'Asia/Saigon',
       hour: '2-digit',
@@ -35,28 +34,14 @@ export async function GET(request: Request) {
       hour12: false
     }).format(now);
 
-    const slots = await repo.getAllScheduleSlots();
-    // Lọc theo ngày
-    let daySlots = slots.filter(s => s.date === today);
-
-    if (teacherId) {
-      daySlots = daySlots.filter(s => s.teacherId === teacherId);
-    }
-
-    let activeSlot: ScheduleSlot | null = null;
-
-    if (dateParam) {
-      // Xem theo một ngày cụ thể: chỉ lấy ca học của đúng ngày đó.
-      activeSlot = daySlots.find(s => s.status !== "Đã hủy") || null;
-    } else {
-      // Trường hợp chạy thời gian thực trên giao diện Live:
-      // CHUẨN XÁC TUYỆT ĐỐI: Chỉ bật "Đang Diễn Ra" khi thời gian hiện tại nằm ĐÚNG trong khung giờ học
-      if (daySlots.length > 0) {
-        activeSlot = daySlots.find(s => s.startTime <= nowTime && s.endTime >= nowTime && s.status !== "Đã hủy") || null;
-      } else {
-        activeSlot = null;
-      }
-    }
+    // Đọc qua ScheduleViewService để giờ của buổi là giờ thật (ca học → slot → lớp),
+    // giống hệt nút điểm danh của học sinh. Đọc bảng thô sẽ lệch khi slot thiếu giờ.
+    const { slots: daySlots } = await loadScheduleView({ date: today, teacherId: teacherId || undefined });
+    // Chỉ bật "Đang diễn ra" khi giờ hiện tại nằm đúng trong khung giờ học.
+    // Không có nhánh "trả về ca đầu tiên của ngày" nữa: ca chưa/đã kết thúc mà báo
+    // là đang diễn ra sẽ khiến sổ điểm danh trực tiếp hiển thị sai.
+    const activeSlot =
+      daySlots.find((s) => s.startTime <= nowTime && s.endTime >= nowTime && s.status !== 'Đã hủy') || null;
 
     if (!activeSlot) {
       return NextResponse.json({
@@ -68,7 +53,16 @@ export async function GET(request: Request) {
 
     // Lấy thông tin lớp học & danh sách học sinh của lớp
     const cls = await repo.getClassById(activeSlot.classId);
-    const rosterStudentIds = cls ? cls.studentIds : [];
+    const rosterStudentIds = cls ? [...cls.studentIds] : [];
+
+    // Học sinh đặt buổi lẻ cho ca này cũng phải hiện trong sổ trực tiếp.
+    const bookings = await repo.getSessionBookings({
+      slotIds: [activeSlot.id],
+      statuses: ['Đã đăng ký', 'Đã học'],
+    });
+    for (const booking of bookings) {
+      if (!rosterStudentIds.includes(booking.studentId)) rosterStudentIds.push(booking.studentId);
+    }
 
     // Lấy bản ghi điểm danh của slot này
     const records = await repo.getAttendanceBySlotId(activeSlot.id);

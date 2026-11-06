@@ -6,7 +6,6 @@ import { RoleGuard } from '@/components/common/RoleGuard';
 import { TuitionInvoice } from '@/types/finance';
 import { AdminBankConfig, DEFAULT_BANK_CONFIG, SUPPORTED_BANKS } from '@/types/bank';
 import { generateVietQRUrl } from '@/utils/vietqr';
-import { BankWebhookSimulator } from '@/components/tuition/BankWebhookSimulator';
 import { SessionPackage } from '@/types/package';
 import {
   Button,
@@ -41,7 +40,6 @@ import {
   TrendingUp,
   AlertTriangle,
   Building2,
-  Zap,
   CheckCircle2,
 } from 'lucide-react';
 
@@ -71,7 +69,6 @@ export default function AdminTuitionPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [students, setStudents] = useState<Array<{ id: string; name: string }>>([]);
   const [loadingOptions, setLoadingOptions] = useState(false);
-  const [showSimulator, setShowSimulator] = useState(false);
 
   const [studentId, setStudentId] = useState('');
   const [title, setTitle] = useState('');
@@ -105,6 +102,7 @@ export default function AdminTuitionPage() {
   const [updateMethod, setUpdateMethod] = useState<string>('Tiền mặt');
   const [updatePaidDate, setUpdatePaidDate] = useState<string>('');
   const [updateNotes, setUpdateNotes] = useState<string>('');
+  const [updateReceived, setUpdateReceived] = useState<string>('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
@@ -293,6 +291,7 @@ export default function AdminTuitionPage() {
     setUpdateMethod(inv.paymentMethod || 'Tiền mặt');
     setUpdatePaidDate(inv.paidDate || new Date().toISOString().split('T')[0]);
     setUpdateNotes('');
+    setUpdateReceived(String(inv.remainingAmount));
     setUpdateError(null);
   };
 
@@ -314,10 +313,9 @@ export default function AdminTuitionPage() {
           paymentMethod: (updateStatus === 'Đã nộp' || updateStatus === 'Miễn giảm') ? updateMethod : undefined,
           paidDate: (updateStatus === 'Đã nộp' || updateStatus === 'Miễn giảm') ? updatePaidDate : undefined,
           transactionCode: updateStatus === 'Đã nộp' ? (updatingInvoice.transactionCode || 'MANUAL-' + Date.now()) : undefined,
+          paidAmount: updateStatus === 'Đã nộp' ? Number(updateReceived) : undefined,
           reason: updateNotes.trim() || undefined,
           note: updateNotes.trim() || undefined,
-
-
         }),
       });
 
@@ -327,7 +325,12 @@ export default function AdminTuitionPage() {
       }
 
       setUpdatingInvoice(null);
-      toast.success('Hoá đơn ' + updatingInvoice.id + ' chuyển sang ' + updateStatus);
+      const finalStatus = data.invoice?.status || updateStatus;
+      if (updateStatus === 'Đã nộp' && finalStatus === 'Còn nợ') {
+        toast.success('Đã ghi nhận thu một phần cho hoá đơn ' + updatingInvoice.id + '. Còn nợ ' + money(data.invoice.remainingAmount));
+      } else {
+        toast.success('Hoá đơn ' + updatingInvoice.id + ' chuyển sang ' + finalStatus);
+      }
       await fetchInvoices();
     } catch (err: any) {
       setUpdateError(err.message || 'Không kết nối được máy chủ');
@@ -575,14 +578,6 @@ export default function AdminTuitionPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                icon={<Zap size={15} />}
-                onClick={() => setShowSimulator(!showSimulator)}
-              >
-                Mô phỏng webhook
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
                 icon={<Building2 size={15} />}
                 onClick={() => {
                   setIsBankModalOpen(true);
@@ -626,16 +621,6 @@ export default function AdminTuitionPage() {
               tone="danger"
             />
           </section>
-
-          {showSimulator && (
-            <BankWebhookSimulator
-              invoices={invoices}
-              onSuccess={() => {
-                fetchInvoices();
-                toast.success('Đã ghi nhận giao dịch, công nợ vừa được làm mới');
-              }}
-            />
-          )}
 
           {view === 'invoices' ? (
             <div className="space-y-4">
@@ -956,8 +941,8 @@ export default function AdminTuitionPage() {
         <Sheet
           isOpen={Boolean(updatingInvoice)}
           onClose={() => setUpdatingInvoice(null)}
-          title="Thu tiền"
-          description={updatingInvoice ? updatingInvoice.id + ' · ' + updatingInvoice.studentId : undefined}
+          title="Xác nhận thu tiền"
+          description={updatingInvoice ? updatingInvoice.id + ' · ' + updatingInvoice.studentId + ' · đối soát thủ công' : undefined}
           footer={
             <>
               <Button variant="secondary" onClick={() => setUpdatingInvoice(null)}>
@@ -972,6 +957,12 @@ export default function AdminTuitionPage() {
           <form id="status-form" onSubmit={handleUpdateStatusSubmit} className="space-y-4">
             {updateError && (
               <p className="text-[13px] font-medium text-danger bg-danger-soft rounded-field px-3 py-2">{updateError}</p>
+            )}
+
+            {updatingInvoice?.note && (
+              <p className="text-[12px] text-warning bg-warning-soft rounded-field px-3 py-2 leading-relaxed">
+                {updatingInvoice.note}
+              </p>
             )}
 
             {updatingInvoice && (
@@ -1013,12 +1004,24 @@ export default function AdminTuitionPage() {
 
             {updateStatus === 'Đã nộp' && (
               <div className="space-y-4 pt-1">
+                <Field
+                  label="Số tiền thực nhận (VNĐ)"
+                  required
+                  hint="Mặc định bằng số còn nợ. Nhập ít hơn nếu học viên chuyển một phần."
+                >
+                  <Input
+                    type="number"
+                    min={1}
+                    max={updatingInvoice?.remainingAmount}
+                    value={updateReceived}
+                    onChange={e => setUpdateReceived(e.target.value)}
+                  />
+                </Field>
                 <Field label="Cách thu">
                   <Select value={updateMethod} onChange={e => setUpdateMethod(e.target.value)}>
                     <option value="Tiền mặt">Tiền mặt tại quầy</option>
-                    <option value="Chuyển khoản VietQR">Chuyển khoản VietQR</option>
-                    <option value="Chuyển khoản thủ công">Chuyển khoản ngân hàng</option>
-                    <option value="Thẻ ATM/POS">Thẻ ngân hàng / POS</option>
+                    <option value="Chuyển khoản QR">Chuyển khoản ngân hàng / VietQR</option>
+                    <option value="Thẻ ngân hàng">Thẻ ngân hàng / POS</option>
                   </Select>
                 </Field>
                 <Field label="Ngày thu">

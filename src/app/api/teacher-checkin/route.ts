@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { ScheduleSlot, TeacherCheckinStatus } from '@/types/schedule';
 import { getTodayDateStr, getNowTimeStr, timeToMinutes } from '@/utils/date';
+import { resolveScheduleSlotTimes } from '@/services/SlotTimeService';
 import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
@@ -91,6 +92,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'Ca dạy đã hủy, không thể chấm công' }, { status: 400 });
     }
 
+    // Giờ thật theo ca học → slot → lớp, cùng thứ tự với ScheduleViewService.
+    // Slot cũ có thể chưa lưu giờ nên đọc thẳng slot.startTime sẽ ra undefined.
+    const effectiveTimes = await resolveScheduleSlotTimes(slot);
+
     // --- Admin chấm bù / chỉnh tay ---
     if (action === 'ADMIN_SET') {
       if (auth.user.role !== 'ADMIN') {
@@ -119,7 +124,7 @@ export async function POST(request: Request) {
       if (!checkinTime) {
         slot.checkinStatus = 'Chưa chấm công';
       } else {
-        const startMins = timeToMinutes(slot.startTime);
+        const startMins = timeToMinutes(effectiveTimes.startTime);
         const inMins = timeToMinutes(checkinTime);
         slot.checkinStatus = inMins <= startMins + ON_TIME_WINDOW_MINUTES ? 'Đúng giờ' : 'Đi muộn';
       }
@@ -180,8 +185,8 @@ export async function POST(request: Request) {
 
     const nowTimeStr = getNowTimeStr();
     const nowMins = timeToMinutes(nowTimeStr);
-    const startMins = timeToMinutes(slot.startTime);
-    const endMins = timeToMinutes(slot.endTime);
+    const startMins = timeToMinutes(effectiveTimes.startTime);
+    const endMins = timeToMinutes(effectiveTimes.endTime);
     const isOvernight = startMins > endMins;
     const endMinsWithGrace = endMins + CHECKOUT_GRACE_MINUTES;
 
@@ -201,9 +206,9 @@ export async function POST(request: Request) {
           success: false,
           error:
             'Chưa tới giờ chấm công. Ca học ' +
-            slot.startTime +
+            effectiveTimes.startTime +
             ' - ' +
-            slot.endTime +
+            effectiveTimes.endTime +
             ', hiện tại ' +
             nowTimeStr,
         },
@@ -217,9 +222,9 @@ export async function POST(request: Request) {
           success: false,
           error:
             'Ca học đã kết thúc quá lâu, không thể kết ca. Ca học ' +
-            slot.startTime +
+            effectiveTimes.startTime +
             ' - ' +
-            slot.endTime +
+            effectiveTimes.endTime +
             ', hiện tại ' +
             nowTimeStr,
         },

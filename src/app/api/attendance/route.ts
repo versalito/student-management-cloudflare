@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { AttendanceRecord, AttendanceStatus } from '@/types/attendance';
 import { getTodayDateStr, getNowTimeStr, timeToMinutes, dateToDayOfWeek } from '@/utils/date';
+import { resolveScheduleSlotTimes } from '@/services/SlotTimeService';
 import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
+import { settleBookingsAttended } from '@/services/BookingService';
 
 export const dynamic = 'force-dynamic';
 
@@ -97,6 +99,15 @@ async function getAttendance(request: Request) {
          const cls = await repo.getClassById(slot.classId);
          rosterIds = cls?.studentIds || [];
        }
+      // Học sinh đặt buổi lẻ cũng phải có tên trong sổ của buổi đó.
+      const booked = await repo.getSessionBookings({
+        slotIds: [slotId],
+        statuses: ['Đã đăng ký', 'Đã học'],
+      });
+      for (const booking of booked) {
+        if (!rosterIds.includes(booking.studentId)) rosterIds.push(booking.studentId);
+      }
+
       if (Array.isArray(rosterIds) && rosterIds.length > 0) {
         const recordedIds = new Set(records.map(r => r.studentId));
         for (const stId of rosterIds) {
@@ -190,6 +201,17 @@ export async function POST(request: Request) {
         isEnrolled = swapsIn.some((sw) => sw.studentId === studentId);
       }
       if (!isEnrolled) {
+        // Buổi lẻ: học sinh đã đặt buổi này thì được tự điểm danh như học viên của ca.
+        // `Đã học` phải tính là đã đăng ký, nếu không lần điểm danh thứ hai rơi vào
+        // nhánh 403 "không thuộc lớp" thay vì 409 "đã điểm danh rồi".
+        const bookings = await repo.getSessionBookings({
+          studentId,
+          slotId: scheduleSlotId,
+          statuses: ['Đã đăng ký', 'Đã học'],
+        });
+        isEnrolled = bookings.length > 0;
+      }
+      if (!isEnrolled) {
         return NextResponse.json(
           { success: false, error: 'Học sinh không thuộc danh sách lớp học của ca này' },
           { status: 403 }
@@ -207,9 +229,14 @@ export async function POST(request: Request) {
         );
       }
 
+      // Giờ thật lấy theo thứ tự: ca học (class_sections) → slot → lớp, đúng như
+      // ScheduleViewService dùng để tính `canCheckIn`. Đọc thẳng slot.startTime sẽ
+      // lệch với nút trên giao diện khi slot chưa lưu giờ.
+      const effective = await resolveScheduleSlotTimes(slot);
+
       const nowMins = timeToMinutes(nowTimeStr);
-      const startMins = timeToMinutes(slot.startTime);
-      const endMins = timeToMinutes(slot.endTime);
+      const startMins = timeToMinutes(effective.startTime);
+      const endMins = timeToMinutes(effective.endTime);
 
       // Ca qua nửa đêm (vd 22:00 -> 01:00): hợp lệ khi nowMins >= startMins HOẶC nowMins <= endMins.
       const isOvernight = startMins > endMins;
@@ -221,7 +248,7 @@ export async function POST(request: Request) {
         return NextResponse.json(
           {
             success: false,
-            error: `Chỉ được điểm danh khi ca học đang diễn ra (${slot.startTime} - ${slot.endTime}). Hiện tại là ${nowTimeStr}`,
+            error: `Chỉ được điểm danh khi ca học đang diễn ra (${effective.startTime} - ${effective.endTime}). Hiện tại là ${nowTimeStr}`,
           },
           { status: 400 }
         );
@@ -261,6 +288,9 @@ export async function POST(request: Request) {
       };
 
       const saved = await repo.saveAttendanceRecord(newRecord);
+
+      // Buổi lẻ đã dùng thì chốt `Đã học`, không cho huỷ nữa.
+      await settleBookingsAttended(repo, [saved]);
 
       // Tự động trừ 1 buổi (usedSessions) khỏi gói hoá đơn đang hoạt động của học sinh.
       await deductSessionForAttendance(studentId, status);
@@ -311,6 +341,7 @@ export async function POST(request: Request) {
       }
 
       const saved = await repo.saveAttendanceBatch(realRecords);
+      await settleBookingsAttended(repo, saved);
 
       // Trừ buổi cho các bản ghi có mặt và chưa từng được ghi nhận trước đó.
       const toDeduct = realRecords.filter(
@@ -332,6 +363,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, count: saved.length, records: saved });
     } else if (body.record) {
       const saved = await repo.saveAttendanceRecord({ ...body.record, updatedBy: updatedBy });
+      await settleBookingsAttended(repo, [saved]);
       await deductSessionForAttendance(saved.studentId, saved.status);
       await repo.addAuditLog({
         userId: updatedBy,

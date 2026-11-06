@@ -138,7 +138,7 @@ bỏ `code` khỏi form/API/UI, giữ cột nullable tạm thời để không v
 - Lương: thống nhất 1 tiêu chí "ca hoàn thành" ở cả `TuitionPayrollService` lẫn `LedgerService`.
 - Test cần điều chỉnh: `bank-settings-vietqr.test.ts` (từ in-memory → persist),
   `student-shift-change.test.ts` (CHANGE_SHIFT theo section), `tuition-payroll.test.ts`,
-  `bank-payment-webhook.test.ts`, `milestone3-packages-attendance.test.ts`, `shifts-and-box-schedule.test.ts`.
+  `milestone3-packages-attendance.test.ts`, `shifts-and-box-schedule.test.ts`.
 
 ---
 

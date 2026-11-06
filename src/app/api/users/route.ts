@@ -63,9 +63,6 @@ export async function PUT(request: Request) {
 
     // Đổi mật khẩu
     if (newPassword) {
-      if (newPassword.length < 6) {
-        return NextResponse.json({ error: 'Mật khẩu phải có tối thiểu 6 ký tự' }, { status: 400 });
-      }
       user.passwordHash = await authService.hashPassword(newPassword);
     }
 
