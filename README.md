@@ -44,11 +44,39 @@ Ba secret cuối không đặt trong `wrangler.toml`; production nạp bằng `w
 - **RLS**: `supabase/rls_lockdown.sql` chặn `anon`/`authenticated` trên mọi bảng, backend dùng `service_role`. Kiểm chứng: `node scripts/verify-rls.mjs`.
 - **Cache-Control**: HTML và API `private, no-store`; `/_next/static/*` immutable 1 năm (xem `public/_headers`).
 
+## Trạng thái production (kiểm tra 2026-11-06)
+
+| Hạng mục | Kết quả |
+|---|---|
+| Cookie phiên | `smc_session` HttpOnly/Secure/SameSite=Lax, TTL 8 h ✅ |
+| Chặn trang theo role | `/admin`, `/teacher`, `/student` → 307 về `/login?next=…` ✅ |
+| API thiếu phiên | 10/10 endpoint nóng trả 401 ✅ |
+| RBAC | phiên học sinh gọi `GET/POST /api/users`, `PUT /api/teachers`, `POST /api/admin/reconcile` → 403 ✅ |
+| Đọc chéo hồ sơ | học sinh đọc hồ sơ mình 200, hồ sơ khác 403 ✅ |
+| Rate limit login | sai mật khẩu lần 5 trở đi → 429 ✅ |
+| Webhook sai secret | 401 ✅ |
+| Cache asset | `/_next/static/*` → `public, max-age=31536000, immutable` ✅ |
+| Cache HTML | `private, no-store` ✅ |
+| RLS | `anon` key đọc `users/students/tuition_invoices/audit_logs` → 401 `permission denied` ✅ |
+| Bảng `bank_transactions` | **thiếu** → webhook hợp lệ 500 `BANK_LEDGER_NOT_READY` ❌ |
+| Mật khẩu tài khoản | **13/17 user còn hash SHA-256 cũ (không salt)**; 12 tài khoản dùng mật khẩu đoán được, gồm 1 ADMIN `password123` ❌ |
+
+Hai mục ❌ cần xử lý phía vận hành: chạy migration `bank_transactions`, và đổi mật khẩu các tài khoản còn dùng `123456` / `password123`. Hash cũ chỉ được nâng cấp tự động sang PBKDF2 ở lần đăng nhập kế tiếp (`AuthService.needsRehash`), nhưng mật khẩu yếu thì phải đổi bằng tay.
+
 ## Cơ sở dữ liệu
 
 - `supabase/setup.sql` — dựng database từ đầu (bảng, ràng buộc, index, trigger đồng bộ users/teachers/students, RLS, dữ liệu nền).
 - `supabase/rls_lockdown.sql` — khoá quyền `anon`/`authenticated` trên toàn bộ bảng.
 - `supabase/migration_*.sql`, `supabase/update_*.sql` — bản vá tăng dần, chạy một lần trong SQL Editor.
+
+Thứ tự bắt buộc cho một database mới: `setup.sql` → `rls_lockdown.sql` → các `migration_*.sql` / `update_*.sql` theo ngày.
+
+**Còn thiếu trên production hiện tại:** `bank_transactions` chưa được tạo, nên webhook hợp lệ trả 500 kèm `code: BANK_LEDGER_NOT_READY`. Chạy:
+
+```bash
+# Supabase Dashboard → SQL Editor → dán nội dung file này
+supabase/migration_20261106_bank_transactions.sql
+```
 
 Tất cả script đều idempotent: chạy lại không mất dữ liệu.
 

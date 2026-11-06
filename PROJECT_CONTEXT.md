@@ -175,6 +175,20 @@ Mọi route gọi `authenticate(request, roles)` trước khi chạm dữ liệu
 
 ---
 
+## 7b. Trạng thái production & nợ kỹ thuật (2026-11-06)
+
+Đã kiểm chứng trên worker thật (không phải suy luận): chặn route theo role, 401 cho API thiếu phiên, 403 khi leo quyền, rate limit login 429 sau 5 lần sai, webhook sai secret 401, `/_next/static/*` immutable, HTML `no-store`, RLS chặn `anon` trên mọi bảng.
+
+Nợ mở, cần xử lý phía vận hành:
+
+| Việc | Chi tiết |
+|---|---|
+| Tạo `bank_transactions` | Chưa có trên DB production. Webhook trả 500 `code: BANK_LEDGER_NOT_READY`. Chạy `supabase/migration_20261106_bank_transactions.sql`. |
+| Đổi mật khẩu yếu | 13/17 user còn hash SHA-256 không salt; 12 tài khoản dùng `123456`/`password123`, trong đó 1 ADMIN. Hash tự nâng cấp sang PBKDF2 ở lần login kế tiếp, mật khẩu thì không. |
+| Nợ lint | `npm run lint` đang `--max-warnings=367` (đã dùng đúng trần). Muốn giảm phải sửa cảnh báo, không được nâng trần để CI xanh. |
+
+---
+
 ## 8. Quy tắc làm việc khi sửa lắt nhắt
 
 > Người dùng đã tuyên bố: **từ giờ chỉ sửa nhỏ, không cần load hết dự án.**
