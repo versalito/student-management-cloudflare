@@ -84,8 +84,19 @@ export async function POST(request: Request) {
     });
   } catch (claimErr: any) {
     console.error('[BANK_WEBHOOK] Không ghi được sổ giao dịch:', claimErr);
+    // Lỗi hay gặp nhất khi mới deploy: bảng chống replay chưa được tạo, hoặc
+    // PostgREST chưa nạp lại schema cache. Trả mã riêng để người vận hành biết
+    // phải chạy migration thay vì đi tìm lỗi trong logic gạch nợ.
+    const message = String(claimErr?.message || '');
+    const missingLedger = /bank_transactions|PGRST205|42P01|schema cache/i.test(message);
     return NextResponse.json(
-      { success: false, message: 'Không ghi được sổ giao dịch ngân hàng' },
+      {
+        success: false,
+        message: missingLedger
+          ? 'Bảng bank_transactions chưa tồn tại — chạy supabase/migration_20261106_bank_transactions.sql'
+          : 'Không ghi được sổ giao dịch ngân hàng',
+        code: missingLedger ? 'BANK_LEDGER_NOT_READY' : 'BANK_LEDGER_ERROR',
+      },
       { status: 500 }
     );
   }
