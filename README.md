@@ -56,6 +56,7 @@ Hai secret cuối không đặt trong `wrangler.toml`; production nạp bằng `
 | Lộ SĐT/lương giáo viên | phiên học sinh nhận `{id,name,specialty,bio}`, không có `phone`/`hourlyRate`/`ratePerSession` ✅ |
 | Lịch/ca của người khác | `?studentId=<khác>`, `?all=true` → 403 ✅ |
 | Rate limit login | sai mật khẩu lần 5 trở đi → 429 ✅ |
+| Lọc PostgREST qua `?id=` | `GET /api/users?id=` với `nope,role.eq.ADMIN`, `%`, `a)b`, `nope" %` đều trả **200 `{"user":null}`**; tra cứu thật (`ADMIN001`, `26007`, `gv_nguyen-thi-huong`) vẫn đúng. Trước bản vá 2026-11-07 hai chuỗi đầu trả **500** vì `maybeSingle()` ném lỗi khi `or(ilike)` khớp nhiều dòng, và input được ghép thẳng vào cú pháp `or(...)` ✅ |
 | Thu hồi phiên khi khoá tài khoản | khoá `26008` rồi dùng lại cookie cũ → `/api/students`, `/api/schedule` đều **401** (trước bản vá 2026-11-07 vẫn 200 trong suốt 8 h còn hạn của token) ✅ |
 | Cache asset | `/_next/static/*` → `public, max-age=31536000, immutable` ✅ |
 | Cache HTML | `private, no-store` ✅ |
@@ -101,7 +102,7 @@ Hệ quả: dựng DB mới bằng `setup.sql` rồi deploy code hiện tại s�
 ## Kiểm tra
 
 ```bash
-npm test          # node:test trên LocalRepository → 204 test
+npm test          # node:test trên LocalRepository → 209 test
 npx tsc --noEmit  # typecheck
 npm run lint      # eslint, --max-warnings=347 (nợ hiện tại, không tăng)
 npm run build     # build Next.js
