@@ -60,6 +60,10 @@ Hai secret cuối không đặt trong `wrangler.toml`; production nạp bằng `
 | Lịch/ca của người khác | `?studentId=<khác>`, `?all=true` → 403 ✅. Bổ sung 2026-11-07: `GET /api/schedule` **trần** (không tham số) chỉ trả ca của lớp học viên ghi danh — trước đó trả toàn trung tâm kèm link phòng; `?classId=<lớp ngoài>` trả `[]` |
 | Phạm vi giáo viên | `GET /api/students` chỉ trả học viên thuộc lớp/ca mình dạy (GV007: 1 hồ sơ, trước đó 400+); `GET /api/students/:id` ngoài lớp → 403; `GET /api/attendance?classId=<lớp khác>` → 403, không tham số chỉ trả sổ lớp mình; `POST /api/attendance` cho lớp khác → 403 |
 | Bảng lương | `GET /api/payroll` không `teacherId` với phiên TEACHER → chỉ trả `payroll` của chính mình (trước đó trả `payrolls` toàn trung tâm) |
+| Bootstrap BFF | `?scope=students` chỉ ADMIN (TEACHER trước đó đọc SĐT cả trung tâm); `scope=classes` lớp ngoài phạm vi → `studentCount` thay `studentIds`; `scope=slots` chỉ ca lớp mình dạy (GV007: `['CLS08']`) |
+| Sĩ số lớp/ca của giáo viên | `/api/classes`, `/api/classes/sections` (mọi nhánh gồm `?all=true`) trả `studentCount` cho lớp/ca ngoài phạm vi, chỉ ca mình dạy mới có `studentIds`; UI đọc `studentCount ?? studentIds.length` |
+| Thống kê chuyên cần | `GET /api/attendance/analytics` phiên TEACHER chỉ trả lớp mình dạy (GV007: 1 học viên thay vì 7); `?classId=<lớp ngoài>` → 403 |
+| Sổ điểm danh theo ca | `GET /api/attendance?slotId=` ca mình dạy → 200 kèm roster; ca lớp khác → 403. Đây là hồi quy do bản vá trước gây ra (nhánh TEACHER trả sớm khi thiếu `classId` làm sổ luôn rỗng) — đã sửa và có test |
 | Leo thang ca dạy | TEACHER `PUT /api/classes/sections` ca người khác → 403 ("Ca này đã được phân công cho giáo viên khác"), gán ca sang GV khác → 403, `POST` tạo ca → 403, `PUT /api/classes` đổi giáo viên → 403; nhận ca chưa phân công vẫn 200 |
 | Rate limit login | sai mật khẩu lần 5 trở đi → 429 ✅. Đo lại 2026-11-07: 4 lần sai → 401, lần 5/6/7 → **429**, và đăng nhập **đúng** trong cửa sổ khoá cũng bị 429 (đúng thiết kế, khoá 5 phút theo cặp IP+username). Bộ đếm nằm trong KV `RATE_LIMIT_KV` nên dùng chung giữa các isolate, không phải Map trong bộ nhớ. |
 | Lọc PostgREST qua `?id=` | `GET /api/users?id=` với `nope,role.eq.ADMIN`, `%`, `a)b`, `nope" %` đều trả **200 `{"user":null}`**; tra cứu thật (`ADMIN001`, `26007`, `gv_nguyen-thi-huong`) vẫn đúng. Trước bản vá 2026-11-07 hai chuỗi đầu trả **500** vì `maybeSingle()` ném lỗi khi `or(ilike)` khớp nhiều dòng, và input được ghép thẳng vào cú pháp `or(...)` ✅ |
@@ -108,7 +112,7 @@ Hệ quả: dựng DB mới bằng `setup.sql` rồi deploy code hiện tại s�
 ## Kiểm tra
 
 ```bash
-npm test          # node:test trên LocalRepository → 230 test
+npm test          # node:test trên LocalRepository → 239 test
 npx tsc --noEmit  # typecheck
 npm run lint      # eslint, --max-warnings=347 (nợ hiện tại, không tăng)
 npm run build     # build Next.js
