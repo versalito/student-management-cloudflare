@@ -281,7 +281,9 @@ export default function TeacherSchedulePage() {
 
   // Chi tiết ngày đang chọn: dùng chung cách xếp cột với trang Admin
   const dayDetail = useMemo(() => {
-    const daySlots = slots.filter((s) => s.date === selectedDate);
+    // Ca đã hủy không còn là ca dạy: nếu giữ lại, khung chi tiết hiện một khối
+    // trống không có nhãn "Đã hủy" (trang giáo viên không có nhãn đó).
+    const daySlots = slots.filter((s) => s.date === selectedDate && s.status !== 'Đã hủy');
     return { slots: daySlots, laidOut: layoutDaySlots(daySlots) };
   }, [slots, selectedDate]);
 
@@ -396,7 +398,9 @@ export default function TeacherSchedulePage() {
               const isSelected = d === selectedDate;
               const dayNum = dayOfWeekNumber(d);
               const [, mm, dd] = d.split('-');
-              const daySlotCount = slots.filter((s) => s.date === d).length;
+              // Dải ngày phải đếm giống lưới bên dưới (đã bỏ ca "Đã hủy"),
+              // nếu không Thứ 3 hiện "2 ca" trong khi lưới chỉ vẽ 1.
+              const daySlotCount = weekSlots.filter((s) => s.date === d).length;
 
               return (
                 <button
