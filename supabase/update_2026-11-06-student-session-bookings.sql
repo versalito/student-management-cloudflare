@@ -5,6 +5,9 @@
 -- Mot ban ghi = mot hoc sinh dat mot buoi cu the cua mot lop dang mo.
 -- Khong co suc chua lop: booking chi bi chan boi slot da qua / da huy /
 -- lop da ket thuc / trung gio voi buoi khac cua chinh hoc sinh do.
+--
+-- DDL o day phai khop supabase/setup.sql (nguon su that khi tao DB moi):
+-- cung ten cot, cung ten constraint, cung ten index.
 -- ============================================================================
 
 begin;
@@ -23,13 +26,15 @@ CREATE TABLE IF NOT EXISTS public.student_session_bookings (
 
 -- RLS: backend dung service_role. Bat RLS khong policy = anon key khong doc duoc.
 ALTER TABLE public.student_session_bookings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.student_session_bookings FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON public.student_session_bookings FROM anon, authenticated;
 
-CREATE INDEX IF NOT EXISTS idx_student_session_bookings_student
-    ON public.student_session_bookings(student_id);
-CREATE INDEX IF NOT EXISTS idx_student_session_bookings_slot
-    ON public.student_session_bookings(slot_id);
-CREATE INDEX IF NOT EXISTS idx_student_session_bookings_status
-    ON public.student_session_bookings(status);
+CREATE INDEX IF NOT EXISTS idx_session_bookings_student
+    ON public.student_session_bookings (student_id);
+CREATE INDEX IF NOT EXISTS idx_session_bookings_slot
+    ON public.student_session_bookings (slot_id);
+CREATE INDEX IF NOT EXISTS idx_session_bookings_status
+    ON public.student_session_bookings (status);
 
 commit;
 
