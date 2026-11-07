@@ -62,11 +62,11 @@ Hai secret cuối không đặt trong `wrangler.toml`; production nạp bằng `
 | Cache HTML | `private, no-store` ✅ |
 | RLS | `anon` key đọc `users/students/tuition_invoices/audit_logs` → 401 `permission denied` ✅ |
 | Mật khẩu tài khoản | Đã crack và **đăng nhập thật thành công** trên production: ADMIN `nguyễn văn tài` = `password123`, TEACHER `gv_nguyen-thi-huong` + STUDENT `26007` = `123456` (còn `đàm mỹ thuyết` = `password123`, học viên `26008` = `123456`). Cơ chế `AuthService.needsRehash` đã nâng hash các tài khoản này sang PBKDF2 ở lần login kế tiếp, nhưng **mật khẩu vẫn yếu** — đăng nhập `nguyễn văn tài`/`password123` vẫn trả 200 với quyền ADMIN ❌ |
-| Khoá `service_role` | **Lộ trong git history** (`bd065ac` xoá khỏi `wrangler.toml` nhưng blob cũ vẫn còn). Khoá vẫn hiệu lực tới 2036. Đã chứng minh bằng request thật (2026-11-07): đọc `users` 18 dòng, `students` 10, `tuition_invoices` 13, `teachers` 5; **ghi được** — `POST /rest/v1/audit_logs` trả 201 (đã xoá dòng probe), `DELETE` trả 204. Tức là có khoá này thì bỏ qua toàn bộ RBAC ở tầng API ❌ |
+| Khoá `service_role` | **ĐÃ XỬ LÝ 2026-11-07.** Khoá cũ lộ trong git history (`bd065ac` xoá khỏi `wrangler.toml` nhưng blob còn) và trong `.env.local` của repo công khai `versalito/student-management`. Đã chuyển Worker sang khoá mới `sb_secret_*` (`wrangler secret put`), deploy lại, verify 6 endpoint + 3 vai trò đều 200, rồi **tắt legacy keys** (`PUT /v1/projects/{ref}/api-keys/legacy?enabled=false`). Khoá cũ giờ trả **401 "Legacy API keys are disabled"** trên REST ghi, Auth và Realtime. `.env.local` đã bị xoá khỏi HEAD của repo thứ hai. |
 
 Mục ❌ cần xử lý phía vận hành:
 
-1. **Rotate `SUPABASE_SERVICE_ROLE_KEY` ngay** — chỉ làm được trong Supabase Dashboard → Project Settings → API → *Rotate JWT secret*, sau đó `wrangler secret put SUPABASE_SERVICE_ROLE_KEY`. Lộ key này = toàn quyền database, mọi thứ khoá ở tầng API đều vô nghĩa với người có key. Cân nhắc `git filter-repo` để xoá blob, nhưng repo đã public nên phải coi khoá là đã lộ vĩnh viễn.
+1. ~~Rotate `SUPABASE_SERVICE_ROLE_KEY`~~ — **đã làm 2026-11-07**, xem dòng "Khoá service_role" ở bảng trên. Legacy keys đã tắt nên mọi JWT cũ (kể cả anon key từng công bố trong `wrangler.toml`) đều vô hiệu.
 2. Đổi mật khẩu các tài khoản có mật khẩu đoán được — **hash đã tự nâng cấp PBKDF2 nhưng mật khẩu không đổi**, nên phải đổi bằng tay: ADMIN `nguyễn văn tài` (`password123`), TEACHER `đàm mỹ thuyết` (`password123`), `gv_nguyen-thi-huong` (`123456`), STUDENT `26007`, `26008` (`123456`). Ưu tiên tài khoản ADMIN vì mật khẩu của nó đã bị crack từ hash công khai.
 3. Xoá tài khoản test còn sót trên production: `st_pwd_01` / `ST_PWD_TEST_01` (đăng nhập được bằng `matkhau_cu`), `USR_DROPOUT_TEST`.
 

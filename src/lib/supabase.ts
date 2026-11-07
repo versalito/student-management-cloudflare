@@ -4,8 +4,11 @@ let cachedClient: SupabaseClient | null = null;
 
 /**
  * Lấy Supabase Admin Client.
- * Ưu tiên SUPABASE_SERVICE_ROLE_KEY để thực thi mọi thao tác CRUD / bỏ qua RLS ở backend context.
- * Fallback sang NEXT_PUBLIC_SUPABASE_ANON_KEY nếu không có service role key.
+ *
+ * Chỉ dùng khoá bí mật (service role / sb_secret_*): mọi truy vấn đi qua đây
+ * cố tình bỏ qua RLS, nên khoá công khai (anon / sb_publishable_*) không bao giờ
+ * là fallback hợp lệ — nó chỉ tạo ra lỗi 401 "permission denied" khó truy.
+ * Thiếu khoá thì trả null để caller báo lỗi cấu hình rõ ràng.
  */
 export function getSupabaseAdminClient(): SupabaseClient | null {
   if (cachedClient) {
@@ -14,10 +17,7 @@ export function getSupabaseAdminClient(): SupabaseClient | null {
 
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_KEY ||
-    process.env.SUPABASE_ANON_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
 
   if (!supabaseUrl || !supabaseKey) {
     return null;
