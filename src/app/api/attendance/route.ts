@@ -5,6 +5,7 @@ import { getTodayDateStr, getNowTimeStr, timeToMinutes, dateToDayOfWeek } from '
 import { resolveScheduleSlotTimes } from '@/services/SlotTimeService';
 import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 import { settleBookingsAttended } from '@/services/BookingService';
+import { settleSlotStatusesFromAttendance } from '@/services/SlotSettlementService';
 
 export const dynamic = 'force-dynamic';
 
@@ -292,6 +293,10 @@ export async function POST(request: Request) {
       // Buổi lẻ đã dùng thì chốt `Đã học`, không cho huỷ nữa.
       await settleBookingsAttended(repo, [saved]);
 
+      // Chốt buổi sang "Đã hoàn thành" khi buổi đã kết thúc, để lương giáo viên
+      // và công nợ tính được (xem SlotSettlementService).
+      await settleSlotStatusesFromAttendance([saved]);
+
       // Tự động trừ 1 buổi (usedSessions) khỏi gói hoá đơn đang hoạt động của học sinh.
       await deductSessionForAttendance(studentId, status);
 
@@ -342,6 +347,7 @@ export async function POST(request: Request) {
 
       const saved = await repo.saveAttendanceBatch(realRecords);
       await settleBookingsAttended(repo, saved);
+      await settleSlotStatusesFromAttendance(saved);
 
       // Trừ buổi cho các bản ghi có mặt và chưa từng được ghi nhận trước đó.
       const toDeduct = realRecords.filter(
@@ -364,6 +370,7 @@ export async function POST(request: Request) {
     } else if (body.record) {
       const saved = await repo.saveAttendanceRecord({ ...body.record, updatedBy: updatedBy });
       await settleBookingsAttended(repo, [saved]);
+      await settleSlotStatusesFromAttendance([saved]);
       await deductSessionForAttendance(saved.studentId, saved.status);
       await repo.addAuditLog({
         userId: updatedBy,
