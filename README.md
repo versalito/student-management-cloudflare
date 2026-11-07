@@ -93,7 +93,7 @@ Hệ quả: dựng DB mới bằng `setup.sql` rồi deploy code hiện tại s�
 
 ### Production còn thiếu (cần chạy trong SQL Editor)
 
-- **Bảng `student_session_bookings`** — migration đã có sẵn: `supabase/update_2026-11-06-student-session-bookings.sql`. Thiếu nó thì `/api/schedule?studentId=…`, `/api/attendance`, `/api/attendance/current-session` trả 500 (`Could not find the table`).
+- **Bảng `student_session_bookings`** — migration đã có sẵn: `supabase/update_2026-11-06-student-session-bookings.sql`. Thiếu nó thì **chỉ tính năng buổi lẻ tắt**: `getSessionBookings` coi `PGRST205` là "chưa có booking nào" nên `/api/schedule?studentId=…`, `/api/attendance`, `/api/student/slots`, `/api/student/bookings` vẫn 200; đặt/huỷ buổi trả lỗi có chỉ dẫn chạy migration. Trước bản vá 2026-11-07 các route này trả 500 và giao diện học viên hiện nguyên văn lỗi PostgREST.
 - **Hàm `max_schedule_slot_number()`** — code **đã bỏ phụ thuộc** (dùng truy vấn REST, xem `getMaxScheduleSlotNumber`), nên không còn là điều kiện deploy. Hàm vẫn giữ trong `setup.sql` cho DB mới.
 - Cột `classes.code` đã bị xoá khỏi DB từ `update_2026-10-07.sql`; code **không** còn đọc/ghi cột này.
 
