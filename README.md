@@ -86,6 +86,7 @@ Mục ❌ cần xử lý phía vận hành:
 1. ~~Rotate `SUPABASE_SERVICE_ROLE_KEY`~~ — **đã làm 2026-11-07**, xem dòng "Khoá service_role" ở bảng trên. Legacy keys đã tắt nên mọi JWT cũ (kể cả anon key từng công bố trong `wrangler.toml`) đều vô hiệu.
 2. Đổi mật khẩu các tài khoản có mật khẩu đoán được — **hash đã tự nâng cấp PBKDF2 nhưng mật khẩu không đổi**, nên phải đổi bằng tay: ADMIN `nguyễn văn tài` (`password123`), TEACHER `đàm mỹ thuyết` (`password123`), `gv_nguyen-thi-huong` (`123456`), STUDENT `26007`, `26008` (`123456`). Ưu tiên tài khoản ADMIN vì mật khẩu của nó đã bị crack từ hash công khai.
 3. Xoá tài khoản test còn sót trên production: `st_pwd_01` / `ST_PWD_TEST_01` (đăng nhập được bằng `matkhau_cu`), `USR_DROPOUT_TEST`.
+4. Dọn dữ liệu kiểm thử phân quyền ngày 2026-11-07 (không có endpoint DELETE nên phải xoá tay trong SQL Editor): đơn `REQ001` (CLS09) và `REQ002` (CLS08) đang ở `TỪ_CHỐI` với ghi chú "Bản ghi kiểm thử phân quyền"; thông báo `ZZ test` (`recipientUserId=26005`).
 
 ## Cơ sở dữ liệu
 
