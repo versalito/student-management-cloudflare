@@ -55,7 +55,7 @@ Hai secret cuối không đặt trong `wrangler.toml`; production nạp bằng `
 | Đổi mật khẩu người khác | chỉ tự đổi được của mình; nhắm `ADMIN001` hay học viên khác → 403 ✅ |
 | Lộ SĐT/lương giáo viên | phiên học sinh nhận `{id,name,specialty,bio}`, không có `phone`/`hourlyRate`/`ratePerSession` ✅ |
 | Lịch/ca của người khác | `?studentId=<khác>`, `?all=true` → 403 ✅ |
-| Rate limit login | sai mật khẩu lần 5 trở đi → 429 ✅ |
+| Rate limit login | sai mật khẩu lần 5 trở đi → 429 ✅. Đo lại 2026-11-07: 4 lần sai → 401, lần 5/6/7 → **429**, và đăng nhập **đúng** trong cửa sổ khoá cũng bị 429 (đúng thiết kế, khoá 5 phút theo cặp IP+username). Bộ đếm nằm trong KV `RATE_LIMIT_KV` nên dùng chung giữa các isolate, không phải Map trong bộ nhớ. |
 | Lọc PostgREST qua `?id=` | `GET /api/users?id=` với `nope,role.eq.ADMIN`, `%`, `a)b`, `nope" %` đều trả **200 `{"user":null}`**; tra cứu thật (`ADMIN001`, `26007`, `gv_nguyen-thi-huong`) vẫn đúng. Trước bản vá 2026-11-07 hai chuỗi đầu trả **500** vì `maybeSingle()` ném lỗi khi `or(ilike)` khớp nhiều dòng, và input được ghép thẳng vào cú pháp `or(...)` ✅ |
 | Thu hồi phiên khi khoá tài khoản | khoá `26008` rồi dùng lại cookie cũ → `/api/students`, `/api/schedule` đều **401** (trước bản vá 2026-11-07 vẫn 200 trong suốt 8 h còn hạn của token) ✅ |
 | Cache asset | `/_next/static/*` → `public, max-age=31536000, immutable` ✅ |
