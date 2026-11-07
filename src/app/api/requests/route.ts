@@ -207,3 +207,55 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }
+
+/**
+ * ADMIN xoá hẳn một đơn (dọn đơn kiểm thử hoặc đơn tạo nhầm).
+ * Không cho xoá đơn đã duyệt vì đơn đã duyệt đã ghi điểm danh "Vắng có phép"
+ * hoặc đã chuyển ca — xoá sẽ làm sổ điểm danh mất dấu vết.
+ */
+export async function DELETE(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+
+  try {
+    const { searchParams } = new URL(request.url);
+    let id = searchParams.get('id');
+    if (!id && request.headers.get('content-type')?.includes('application/json')) {
+      try {
+        const body = await request.json();
+        id = body.id || body.requestId;
+      } catch {
+        // body rỗng
+      }
+    }
+    if (!id) {
+      return NextResponse.json({ success: false, error: 'Thiếu id đơn cần xoá' }, { status: 400 });
+    }
+
+    const existing = await repo.getRequestById(id);
+    if (!existing) {
+      return NextResponse.json({ success: false, error: 'Không tìm thấy đơn' }, { status: 404 });
+    }
+    if (existing.status === 'ĐÃ_DUYỆT') {
+      return NextResponse.json(
+        { success: false, error: 'Không xoá đơn đã duyệt (đơn đã ghi vào sổ điểm danh)' },
+        { status: 409 }
+      );
+    }
+
+    await repo.deleteRequest(id);
+    await repo.addAuditLog({
+      userId: auth.user.id,
+      userName: auth.user.name,
+      userRole: auth.user.role,
+      action: 'DELETE',
+      targetResource: 'REQUEST',
+      targetId: id,
+      details: `Xoá đơn ${id} của học viên ${existing.studentId} (lớp ${existing.classId}, trạng thái ${existing.status})`,
+    });
+
+    return NextResponse.json({ success: true, message: `Đã xoá đơn ${id}` });
+  } catch (err: any) {
+    return NextResponse.json({ success: false, error: err?.message || 'Lỗi khi xoá đơn' }, { status: 500 });
+  }
+}

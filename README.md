@@ -78,15 +78,16 @@ Hai secret cuối không đặt trong `wrangler.toml`; production nạp bằng `
 | Cache asset | `/_next/static/*` → `public, max-age=31536000, immutable` ✅ |
 | Cache HTML | `private, no-store` ✅ |
 | RLS | `anon` key đọc `users/students/tuition_invoices/audit_logs` → 401 `permission denied` ✅ |
-| Mật khẩu tài khoản | Đo lại 2026-11-07 (sau deploy vá phân quyền): TEACHER `gv_nguyen-thi-huong` = `123456` và STUDENT `26005`, `26007` = `123456` **vẫn đăng nhập được** ❌. Ngược lại ADMIN: thử `nguyễn văn tài`, `nguyen van tai`, `admin`, `ADMIN001` với `password123` đều trả 401 — mật khẩu admin đã được đổi (hoặc ghi nhận cũ trong bảng này sai), nên **không còn leo thang ADMIN bằng mật khẩu đã crack** ✅. Cơ chế `AuthService.needsRehash` nâng hash sang PBKDF2 ở lần login kế tiếp nhưng **không đổi mật khẩu**. |
+| Mật khẩu tài khoản | **ĐÃ XỬ LÝ 2026-11-07.** Trước khi xoay, 11/13 tài khoản đăng nhập được bằng `123456`: TEACHER `gv001`, `gv_mr-tai`, `gv_nguyen-thuy-chi`, `gv_nguyen-thi-huong`; STUDENT `26002`–`26008`. Đã đổi toàn bộ sang mật khẩu mạnh riêng từng tài khoản qua `PUT /api/users` (11/11 trả 200); kiểm chứng lại: mật khẩu cũ **401** cho cả 11, mật khẩu mới **200** cho cả 11, đăng nhập UI thử học viên + giáo viên đều vào đúng cổng. Danh sách mật khẩu mới do ADMIN giữ, **không lưu trong repo**. Ghi chú cũ: Ngược lại ADMIN: thử `nguyễn văn tài`, `nguyen van tai`, `admin`, `ADMIN001` với `password123` đều trả 401 — mật khẩu admin đã được đổi (hoặc ghi nhận cũ trong bảng này sai), nên **không còn leo thang ADMIN bằng mật khẩu đã crack** ✅. Cơ chế `AuthService.needsRehash` nâng hash sang PBKDF2 ở lần login kế tiếp nhưng **không đổi mật khẩu**. |
 | Khoá `service_role` | **ĐÃ XỬ LÝ 2026-11-07.** Khoá cũ lộ trong git history (`bd065ac` xoá khỏi `wrangler.toml` nhưng blob còn) và trong `.env.local` của repo công khai `versalito/student-management`. Đã chuyển Worker sang khoá mới `sb_secret_*` (`wrangler secret put`), deploy lại, verify 6 endpoint + 3 vai trò đều 200, rồi **tắt legacy keys** (`PUT /v1/projects/{ref}/api-keys/legacy?enabled=false`). Khoá cũ giờ trả **401 "Legacy API keys are disabled"** trên REST ghi, Auth và Realtime. `.env.local` đã bị xoá khỏi HEAD của repo thứ hai. |
 
 Mục ❌ cần xử lý phía vận hành:
 
 1. ~~Rotate `SUPABASE_SERVICE_ROLE_KEY`~~ — **đã làm 2026-11-07**, xem dòng "Khoá service_role" ở bảng trên. Legacy keys đã tắt nên mọi JWT cũ (kể cả anon key từng công bố trong `wrangler.toml`) đều vô hiệu.
-2. Đổi mật khẩu các tài khoản có mật khẩu đoán được — **hash đã tự nâng cấp PBKDF2 nhưng mật khẩu không đổi**, nên phải đổi bằng tay: ADMIN `nguyễn văn tài` (`password123`), TEACHER `đàm mỹ thuyết` (`password123`), `gv_nguyen-thi-huong` (`123456`), STUDENT `26007`, `26008` (`123456`). Ưu tiên tài khoản ADMIN vì mật khẩu của nó đã bị crack từ hash công khai.
-3. Xoá tài khoản test còn sót trên production: `st_pwd_01` / `ST_PWD_TEST_01` (đăng nhập được bằng `matkhau_cu`), `USR_DROPOUT_TEST`.
-4. Dọn dữ liệu kiểm thử phân quyền ngày 2026-11-07 (không có endpoint DELETE nên phải xoá tay trong SQL Editor): đơn `REQ001` (CLS09) và `REQ002` (CLS08) đang ở `TỪ_CHỐI` với ghi chú "Bản ghi kiểm thử phân quyền"; thông báo `ZZ test` (`recipientUserId=26005`).
+2. ~~Đổi mật khẩu các tài khoản có mật khẩu đoán được~~ — **đã làm 2026-11-07** cho 11 tài khoản dùng `123456` (xem dòng "Mật khẩu tài khoản"). Còn lại cần xác nhận với chủ trung tâm: `đàm mỹ thuyết` (TEACHER) và `nguyễn văn tài` (ADMIN) từng bị crack từ hash công khai với `password123` nhưng hiện **401** — nhiều khả năng đã được đổi tay; nên đổi lại một lần nữa cho chắc vì mật khẩu đó từng công khai trong lịch sử git.
+3. ~~Xoá tài khoản test còn sót~~ — **không còn tồn tại**: `GET /api/users` trả đúng 14 tài khoản thật, không có `st_pwd_01` / `ST_PWD_TEST_01` / `USR_DROPOUT_TEST`, và bảng `students`/`teachers` cũng không còn dòng tương ứng.
+4. ~~Dọn dữ liệu kiểm thử phân quyền~~ — **đã dọn 2026-11-07** nhờ endpoint mới `DELETE /api/requests?id=` và `DELETE /api/notifications?id=` (chỉ ADMIN, ghi audit log): xoá `REQ001`, `REQ002`, thông báo `ZZ test`. Hiện `/api/requests` và `/api/notifications` đều trả 0 bản ghi.
+5. Phiên đăng nhập **không bị thu hồi khi đổi mật khẩu**: token chỉ chứa `uid/role/name` + hạn 8 h, nên cookie phát trước khi xoay vẫn dùng được tới khi hết hạn. Nếu cần thu hồi ngay, phải thêm trường version vào token và so với DB.
 
 ## Cơ sở dữ liệu
 
@@ -120,7 +121,7 @@ Hệ quả: dựng DB mới bằng `setup.sql` rồi deploy code hiện tại s�
 ## Kiểm tra
 
 ```bash
-npm test          # node:test trên LocalRepository → 267 test
+npm test          # node:test trên LocalRepository → 273 test
 npx tsc --noEmit  # typecheck
 npm run lint      # eslint, --max-warnings=347 (nợ hiện tại, không tăng)
 npm run build     # build Next.js

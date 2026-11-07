@@ -14,8 +14,8 @@ import { GET as getStudentDetail } from '../src/app/api/students/[id]/route';
 import { POST as postSection, PUT as putSection } from '../src/app/api/classes/sections/route';
 import { PUT as putClass } from '../src/app/api/classes/route';
 import { GET as getCurrentSession } from '../src/app/api/attendance/current-session/route';
-import { GET as getRequests } from '../src/app/api/requests/route';
-import { GET as getNotifications, POST as postNotifications } from '../src/app/api/notifications/route';
+import { GET as getRequests, DELETE as deleteRequests } from '../src/app/api/requests/route';
+import { GET as getNotifications, POST as postNotifications, DELETE as deleteNotifications } from '../src/app/api/notifications/route';
 import { POST as postEnroll } from '../src/app/api/classes/enroll/route';
 import { PUT as putTeacher } from '../src/app/api/teachers/route';
 import { GET as getTeacherCheckin } from '../src/app/api/teacher-checkin/route';
@@ -895,5 +895,78 @@ test('Access scoping: thông báo chỉ chủ sở hữu (và ADMIN) đọc/đá
       authed(`http://localhost/api/notifications?userId=${studentId}`)
     );
     assert.equal(res.status, 200);
+  });
+});
+
+test('Xoá đơn/thông báo: chỉ ADMIN, và không xoá đơn đã duyệt', async (t) => {
+  const repo = LocalRepository.getInstance();
+  const pending = await repo.createRequest({
+    id: 'REQ_DEL_1',
+    studentId: studentUser.id,
+    classId: 'CLS08',
+    scheduleSlotId: 'SLOT_TEST_1',
+    type: 'XIN_NGHI',
+    reason: 'test xoá',
+    status: 'CHỜ_DUYỆT',
+    createdAt: new Date().toISOString(),
+  });
+  const approved = await repo.createRequest({
+    id: 'REQ_DEL_2',
+    studentId: studentUser.id,
+    classId: 'CLS08',
+    scheduleSlotId: 'SLOT_TEST_2',
+    type: 'XIN_NGHI',
+    reason: 'test xoá',
+    status: 'ĐÃ_DUYỆT',
+    createdAt: new Date().toISOString(),
+  });
+
+  await t.test('giáo viên không xoá được đơn', async () => {
+    const res = await deleteRequests(
+      authed(`http://localhost/api/requests?id=${pending.id}`, { method: 'DELETE' }, teacherUser)
+    );
+    assert.equal(res.status, 403);
+  });
+
+  await t.test('học viên không xoá được đơn', async () => {
+    const res = await deleteRequests(
+      authed(`http://localhost/api/requests?id=${pending.id}`, { method: 'DELETE' }, studentUser)
+    );
+    assert.equal(res.status, 403);
+  });
+
+  await t.test('ADMIN xoá được đơn chưa duyệt', async () => {
+    const res = await deleteRequests(
+      authed(`http://localhost/api/requests?id=${pending.id}`, { method: 'DELETE' })
+    );
+    assert.equal(res.status, 200);
+    assert.equal(await repo.getRequestById(pending.id), null);
+  });
+
+  await t.test('ADMIN không xoá được đơn đã duyệt', async () => {
+    const res = await deleteRequests(
+      authed(`http://localhost/api/requests?id=${approved.id}`, { method: 'DELETE' })
+    );
+    assert.equal(res.status, 409);
+    assert.notEqual(await repo.getRequestById(approved.id), null);
+  });
+
+  await t.test('ADMIN xoá được thông báo; giáo viên thì không', async () => {
+    const created = await repo.addNotification({
+      title: 'DEL notif',
+      message: 'probe',
+      type: 'INFO',
+      recipientRole: 'STUDENT',
+      recipientUserId: studentUser.id,
+      isRead: false,
+    });
+    const denied = await deleteNotifications(
+      authed(`http://localhost/api/notifications?id=${created.id}`, { method: 'DELETE' }, teacherUser)
+    );
+    assert.equal(denied.status, 403);
+    const ok = await deleteNotifications(
+      authed(`http://localhost/api/notifications?id=${created.id}`, { method: 'DELETE' })
+    );
+    assert.equal(ok.status, 200);
   });
 });

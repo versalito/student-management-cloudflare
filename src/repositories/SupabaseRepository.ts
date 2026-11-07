@@ -2169,6 +2169,21 @@ export class SupabaseRepository implements IRepository {
     }
   }
 
+  public async deleteRequest(id: string): Promise<boolean> {
+    const client = this.getClient();
+    if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local"); // deleteRequest(id);
+
+    try {
+      const { error } = await client.from('class_requests').delete().eq('id', id);
+      if (error) {
+        throw new Error(error.message);
+      }
+      return true;
+    } catch (err) {
+      throw err;
+    }
+  }
+
   // --------------------------------------------------------------------------
   // FINANCE
   // --------------------------------------------------------------------------
@@ -2568,6 +2583,21 @@ export class SupabaseRepository implements IRepository {
         throw new Error(error.message);
       }
       return fullNotif;
+    } catch (err) {
+      throw err;
+    }
+  }
+
+  public async deleteNotification(id: string): Promise<boolean> {
+    const client = this.getClient();
+    if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local"); // deleteNotification(id);
+
+    try {
+      const { error } = await client.from('notifications').delete().eq('id', id);
+      if (error) {
+        throw new Error(error.message);
+      }
+      return true;
     } catch (err) {
       throw err;
     }

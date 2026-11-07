@@ -666,6 +666,10 @@ export class LocalRepository implements IRepository {
     return request;
   }
 
+  public async deleteRequest(id: string): Promise<boolean> {
+    return this.classRequests.delete(id);
+  }
+
 
   // Session Packages
   public async getAllSessionPackages(): Promise<SessionPackage[]> {
@@ -764,6 +768,10 @@ export class LocalRepository implements IRepository {
     };
     this.notifications.set(id, full);
     return full;
+  }
+
+  public async deleteNotification(id: string): Promise<boolean> {
+    return this.notifications.delete(id);
   }
 
   public async markNotificationAsRead(id: string): Promise<boolean> {

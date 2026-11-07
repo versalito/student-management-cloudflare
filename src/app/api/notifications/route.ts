@@ -90,3 +90,40 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error?.message || 'Lỗi xử lý thông báo' }, { status: 500 });
   }
 }
+
+/** ADMIN xoá hẳn một thông báo (dọn thông báo kiểm thử). */
+export async function DELETE(request: Request) {
+  const auth = await authenticate(request, ['ADMIN']);
+  if (auth.response) return auth.response;
+
+  try {
+    const { searchParams } = new URL(request.url);
+    let id = searchParams.get('id');
+    if (!id && request.headers.get('content-type')?.includes('application/json')) {
+      try {
+        const body = await request.json();
+        id = body.id;
+      } catch {
+        // body rỗng
+      }
+    }
+    if (!id) {
+      return NextResponse.json({ error: 'Thiếu id thông báo cần xoá' }, { status: 400 });
+    }
+
+    await repo.deleteNotification(id);
+    await repo.addAuditLog({
+      userId: auth.user.id,
+      userName: auth.user.name,
+      userRole: auth.user.role,
+      action: 'DELETE',
+      targetResource: 'NOTIFICATION',
+      targetId: id,
+      details: `Xoá thông báo ${id}`,
+    });
+
+    return NextResponse.json({ success: true, message: `Đã xoá thông báo ${id}` });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || 'Lỗi khi xoá thông báo' }, { status: 500 });
+  }
+}

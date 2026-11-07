@@ -189,6 +189,8 @@ export interface IRepository {
   getRequestsByTeacherId(teacherId: string): Promise<ClassRequest[]>;
   createRequest(request: ClassRequest): Promise<ClassRequest>;
   updateRequest(request: ClassRequest): Promise<ClassRequest>;
+  /** Chỉ ADMIN: xoá hẳn một đơn (dùng để dọn đơn kiểm thử / đơn tạo nhầm). */
+  deleteRequest(id: string): Promise<boolean>;
 
   // Session Packages
   getAllSessionPackages(): Promise<SessionPackage[]>;
@@ -217,6 +219,8 @@ export interface IRepository {
   getNotifications(userId?: string, role?: string): Promise<AppNotification[]>;
   addNotification(notification: Omit<AppNotification, 'id' | 'createdAt'>): Promise<AppNotification>;
   markNotificationAsRead(id: string): Promise<boolean>;
+  /** Chỉ ADMIN: xoá hẳn một thông báo. */
+  deleteNotification(id: string): Promise<boolean>;
   markAllNotificationsAsRead(userId?: string): Promise<boolean>;
 
   // Truy vấn tối ưu: lọc/phân trang ở tầng dữ liệu
