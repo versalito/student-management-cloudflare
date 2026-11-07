@@ -46,6 +46,33 @@ export async function GET(request: Request) {
     });
   }
 
+  // Giáo viên đọc danh sách đồng nghiệp để biết ai phụ trách ca nào, nhưng
+  // không cần lương của người khác. `hourlyRate`/`ratePerSession` là dữ liệu
+  // tài chính cá nhân: chỉ trả cho ADMIN, hoặc cho chính giáo viên đó.
+  if (auth.user.role === 'TEACHER') {
+    if (id) {
+      const teacher = await repo.getTeacherById(id);
+      if (!teacher) return NextResponse.json({ teacher: null });
+      if (teacher.id === auth.user.id) return NextResponse.json({ teacher });
+      const { hourlyRate, ratePerSession, phone, ...rest } = teacher;
+      void hourlyRate;
+      void ratePerSession;
+      void phone;
+      return NextResponse.json({ teacher: rest });
+    }
+    const teachers = await repo.getAllTeachers();
+    return NextResponse.json({
+      teachers: teachers.map((t) => {
+        if (t.id === auth.user.id) return t;
+        const { hourlyRate, ratePerSession, phone, ...rest } = t;
+        void hourlyRate;
+        void ratePerSession;
+        void phone;
+        return rest;
+      }),
+    });
+  }
+
   if (id) {
     const teacher = await repo.getTeacherById(id);
     return NextResponse.json({ teacher });

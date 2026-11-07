@@ -661,3 +661,42 @@ test('Access scoping: danh sách đơn từ của giáo viên chỉ gồm lớp 
     assert.equal(data.requests.length, all.length);
   });
 });
+
+test('Access scoping: giáo viên không đọc lương/SĐT của đồng nghiệp', async (t) => {
+  const repo = LocalRepository.getInstance();
+  const all = await repo.getAllTeachers();
+  const self = all.find((x) => x.id === 'GV001');
+  const other = all.find((x) => x.id !== 'GV001');
+  assert.ok(self && other, 'seed phải có >= 2 giáo viên');
+
+  await t.test('GET /api/teachers ẩn lương người khác, giữ của mình', async () => {
+    const res = await getTeachers(authed('http://localhost/api/teachers', {}, teacherUser));
+    assert.equal(res.status, 200);
+    const data = await res.json() as {
+      teachers: { id: string; hourlyRate?: number; ratePerSession?: number; phone?: string }[];
+    };
+    const me = data.teachers.find((x) => x.id === self.id);
+    const them = data.teachers.find((x) => x.id === other.id);
+    assert.ok(me && them, 'phải trả cả hai hồ sơ');
+    assert.equal(me.hourlyRate, self.hourlyRate, 'phải giữ lương của chính mình');
+    assert.equal(them.hourlyRate, undefined, 'không được lộ lương đồng nghiệp');
+    assert.equal(them.ratePerSession, undefined);
+    assert.equal(them.phone, undefined, 'không được lộ SĐT đồng nghiệp');
+  });
+
+  await t.test('GET /api/teachers?id=<đồng nghiệp> cũng bị ẩn', async () => {
+    const res = await getTeachers(
+      authed(`http://localhost/api/teachers?id=${other.id}`, {}, teacherUser)
+    );
+    const data = await res.json() as { teacher: { hourlyRate?: number; phone?: string } };
+    assert.equal(data.teacher.hourlyRate, undefined);
+    assert.equal(data.teacher.phone, undefined);
+  });
+
+  await t.test('ADMIN vẫn thấy đầy đủ', async () => {
+    const res = await getTeachers(authed(`http://localhost/api/teachers?id=${other.id}`));
+    const data = await res.json() as { teacher: { hourlyRate?: number; phone?: string } };
+    assert.equal(data.teacher.hourlyRate, other.hourlyRate);
+    assert.equal(data.teacher.phone, other.phone);
+  });
+});
