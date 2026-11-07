@@ -13,6 +13,8 @@ import { GET as getAttendance, POST as postAttendance } from '../src/app/api/att
 import { GET as getStudentDetail } from '../src/app/api/students/[id]/route';
 import { POST as postSection, PUT as putSection } from '../src/app/api/classes/sections/route';
 import { PUT as putClass } from '../src/app/api/classes/route';
+import { GET as getCurrentSession } from '../src/app/api/attendance/current-session/route';
+import { getTodayDateStr } from '../src/utils/date';
 import { authedAsStudent, authed, teacherUser } from './helpers/auth';
 
 /**
@@ -592,5 +594,38 @@ test('Access scoping: giáo viên vẫn mở được sổ điểm danh theo ca 
       authed(`http://localhost/api/attendance?slotId=${foreignSlot.id}`, {}, teacherUser)
     );
     assert.equal(res.status, 403);
+  });
+});
+
+test('Access scoping: /api/attendance/current-session không mở ca của giáo viên khác', async (t) => {
+  const repo = LocalRepository.getInstance();
+  const teacherId = 'GV001';
+  const ownClassIds = new Set((await repo.getClassesByTeacherId(teacherId)).map((c) => c.id));
+  const today = getTodayDateStr();
+
+  const allSlots = await repo.getAllScheduleSlots();
+  const todaySlots = allSlots.filter((s) => s.date === today && s.status !== 'Đã hủy');
+  const foreignTodaySlot = todaySlots.find((s) => !ownClassIds.has(s.classId));
+
+  await t.test('?teacherId=<giáo viên khác> bị chặn', async () => {
+    const res = await getCurrentSession(
+      authed('http://localhost/api/attendance/current-session?teacherId=GV002', {}, teacherUser)
+    );
+    assert.equal(res.status, 403);
+  });
+
+  await t.test('không tham số không trả ca ngoài phạm vi', async () => {
+    const res = await getCurrentSession(
+      authed('http://localhost/api/attendance/current-session', {}, teacherUser)
+    );
+    assert.equal(res.status, 200);
+    const data = await res.json() as { hasActiveSession: boolean; slot?: { classId: string } };
+    if (data.hasActiveSession && data.slot) {
+      assert.ok(
+        ownClassIds.has(data.slot.classId),
+        `trả ca của lớp ${data.slot.classId} ngoài phạm vi ${[...ownClassIds].join(',')}`
+      );
+    }
+    assert.ok(foreignTodaySlot === undefined || !data.hasActiveSession || data.slot!.classId !== foreignTodaySlot.classId);
   });
 });

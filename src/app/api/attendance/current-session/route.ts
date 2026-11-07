@@ -4,6 +4,7 @@ import { repo } from '@/repositories';
 import { loadScheduleView } from '@/services/ScheduleViewService';
 import { AttendanceRecord } from '@/types/attendance';
 import { authenticate } from '@/lib/auth/session';
+import { getTeacherClassIds } from '@/lib/auth/studentScope';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,7 +23,20 @@ export async function GET(request: Request) {
 
   try {
     const { searchParams } = new URL(request.url);
-    const teacherId = searchParams.get('teacherId');
+    const requestedTeacherId = searchParams.get('teacherId');
+
+    // Trước đây route này không giới hạn gì: một giáo viên bất kỳ gọi không tham
+    // số là nhận ca đang diễn ra của TOÀN trung tâm, kèm tên + SĐT từng học viên
+    // trong danh sách "chưa điểm danh". Giáo viên phải bị ép về ca của mình;
+    // `?teacherId=` của người khác là 403 chứ không phải một phép lọc.
+    const isTeacher = auth.user.role === 'TEACHER';
+    if (isTeacher && requestedTeacherId && requestedTeacherId !== auth.user.id) {
+      return NextResponse.json(
+        { success: false, error: 'Không có quyền xem ca dạy của giáo viên khác' },
+        { status: 403 },
+      );
+    }
+    const teacherId = isTeacher ? auth.user.id : requestedTeacherId || undefined;
 
     const now = new Date();
     // Lấy ngày và giờ chuẩn xác theo múi giờ Việt Nam (Asia/Saigon)
@@ -52,6 +66,19 @@ export async function GET(request: Request) {
     }
 
     // Lấy thông tin lớp học & danh sách học sinh của lớp
+    if (isTeacher) {
+      const allowed = await getTeacherClassIds(auth.user.id);
+      if (!allowed.has(activeSlot.classId)) {
+        // Ca đang diễn ra là của giáo viên khác: coi như giáo viên này không có
+        // ca đang dạy, không trả thông tin lớp/học viên.
+        return NextResponse.json({
+          success: true,
+          hasActiveSession: false,
+          message: 'Hiện không có ca học nào đang diễn ra',
+        });
+      }
+    }
+
     const cls = await repo.getClassById(activeSlot.classId);
     const rosterStudentIds = cls ? [...cls.studentIds] : [];
 
