@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { ConflictEngine } from '@/services/ConflictEngine';
 import { resolveSlotTimeRange } from '@/utils/slotTime';
 import { loadScheduleView } from '@/services/ScheduleViewService';
-import { authenticate } from '@/lib/auth/session';
+import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +12,24 @@ export async function GET(request: Request) {
   if (auth.response) return auth.response;
 
   const { searchParams } = new URL(request.url);
+
+  if (auth.user.role === 'STUDENT') {
+    const requestedStudentId = searchParams.get('studentId');
+    if (requestedStudentId && !isSelfOrStaff(auth.user, requestedStudentId)) {
+      return NextResponse.json(
+        { slots: [], error: 'Không có quyền xem lịch học của học viên khác' },
+        { status: 403 }
+      );
+    }
+    // Không có studentId thì phải thu hẹp theo lớp hoặc theo ngày: nếu không,
+    // một học viên gọi trần sẽ nhận toàn bộ lịch của trung tâm.
+    if (!requestedStudentId && !searchParams.get('classId') && !searchParams.get('date')) {
+      return NextResponse.json(
+        { slots: [], error: 'Cần chỉ định lớp hoặc ngày khi xem lịch học' },
+        { status: 403 }
+      );
+    }
+  }
 
   try {
     const view = await loadScheduleView({

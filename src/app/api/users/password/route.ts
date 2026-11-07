@@ -29,6 +29,16 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Mật khẩu mới phải khác mật khẩu hiện tại' }, { status: 400 });
     }
 
+    // Chỉ tự đổi mật khẩu của chính mình. Không có ngoại lệ cho ADMIN: đổi mật
+    // khẩu người khác mà không có mật khẩu hiện tại của họ là chiếm tài khoản —
+    // trước đây một học viên đổi được mật khẩu của quản trị viên.
+    if (String(userId).toUpperCase() !== auth.user.id.toUpperCase()) {
+      return NextResponse.json(
+        { error: 'Chỉ được đổi mật khẩu của chính mình' },
+        { status: 403 }
+      );
+    }
+
     const user = await repo.getUserById(String(userId));
     if (!user) {
       return NextResponse.json({ error: 'Không tìm thấy tài khoản' }, { status: 404 });

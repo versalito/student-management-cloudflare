@@ -29,6 +29,23 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
 
+  // Học viên chỉ cần tên/ảnh/chuyên môn để hiển thị "GV phụ trách", không được
+  // thấy SĐT, lương theo giờ, lương theo buổi hay tiểu sử của giáo viên.
+  if (auth.user.role === 'STUDENT') {
+    if (id) {
+      const teacher = await repo.getTeacherById(id);
+      if (!teacher) return NextResponse.json({ teacher: null });
+      const { id: tid, name, specialty, bio } = teacher;
+      return NextResponse.json({ teacher: { id: tid, name, specialty, bio } });
+    }
+    const teachers = await repo.getAllTeachers();
+    return NextResponse.json({
+      teachers: teachers.map(({ id: tid, name, specialty, bio }) => ({
+        id: tid, name, specialty, bio,
+      })),
+    });
+  }
+
   if (id) {
     const teacher = await repo.getTeacherById(id);
     return NextResponse.json({ teacher });

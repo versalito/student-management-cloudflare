@@ -41,6 +41,15 @@ export async function GET(request: Request) {
   const parts = parseParts(searchParams.get('scope'));
   const date = searchParams.get('date') || undefined;
 
+  // Học viên chỉ bootstrap được dữ liệu của chính mình: không thấy danh sách
+  // học viên (SĐT phụ huynh) và không kéo được lịch của cả trung tâm.
+  if (auth.user.role === 'STUDENT' && parts.includes('students')) {
+    return NextResponse.json(
+      { error: 'Không có quyền tải danh sách học viên' },
+      { status: 403 }
+    );
+  }
+
   const wants = new Set<BootstrapPart>(parts);
 
   try {
@@ -70,7 +79,12 @@ export async function GET(request: Request) {
       statuses.push(classesResult ? classesResult.status : 'bypass');
     }
     if (wants.has('teachers')) {
-      body.teachers = teachers ?? [];
+      // Học viên không được thấy SĐT/lương của giáo viên qua bootstrap.
+      body.teachers = auth.user.role === 'STUDENT'
+        ? (teachers ?? []).map(({ id, name, specialty, bio }) => ({
+            id, name, specialty, bio,
+          }))
+        : teachers ?? [];
       statuses.push(teachersResult ? teachersResult.status : 'bypass');
     }
     if (wants.has('shifts')) {

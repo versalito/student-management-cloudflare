@@ -4,7 +4,7 @@ import { ClassSection } from '@/types/classroom';
 import { ScheduleSlot } from '@/types/schedule';
 import { BulkScheduleService } from '@/services/BulkScheduleService';
 import { getTodayDateStr, getTodayDateStrByDate, dateToDayOfWeek } from '@/utils/date';
-import { authenticate } from '@/lib/auth/session';
+import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +19,30 @@ export async function GET(request: Request) {
   const id = searchParams.get('id');
   const classIdsParam = searchParams.get('classIds');
   const all = searchParams.get('all');
+
+  // Học viên chỉ xem được ca của lớp (để chọn ca đăng ký) và ca của chính mình;
+  // không được kéo ca của một học viên khác hay toàn bộ ca của trung tâm.
+  if (auth.user.role === 'STUDENT') {
+    if ((studentId && !isSelfOrStaff(auth.user, studentId)) || all === 'true') {
+      return NextResponse.json(
+        { error: 'Không có quyền xem ca học của người khác' },
+        { status: 403 }
+      );
+    }
+    if (id) {
+      const sec = await repo.getSectionById(id);
+      if (!sec) return NextResponse.json({ section: null });
+      const owns = (sec.studentIds || []).includes(auth.user.id);
+      const classWide = classId ? sec.classId === classId : false;
+      if (!owns && !classWide) {
+        return NextResponse.json(
+          { error: 'Không có quyền xem ca học này' },
+          { status: 403 }
+        );
+      }
+      return NextResponse.json({ section: sec });
+    }
+  }
 
   if (id) {
     const sec = await repo.getSectionById(id);

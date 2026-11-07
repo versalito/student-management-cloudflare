@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { MAX_STUDENT_PAGE_LIMIT } from '@/repositories/IRepository';
 import { StudentService } from '@/services/StudentService';
-import { authenticate } from '@/lib/auth/session';
+import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +12,32 @@ export async function GET(request: Request) {
   if (auth.response) return auth.response;
 
   const { searchParams } = new URL(request.url);
+
+  // Học viên chỉ đọc được hồ sơ của chính mình: danh sách học viên chứa SĐT,
+  // phụ huynh, địa chỉ, ngày sinh. Trước đây STUDENT gọi `?limit=all` là lấy
+  // được toàn bộ bảng, và `?id=<người khác>` là đọc được hồ sơ bất kỳ ai.
+  if (auth.user.role === 'STUDENT') {
+    const requestedId = searchParams.get('id');
+    // Gọi trần (không id) = đọc hồ sơ của chính mình; id của người khác thì chặn.
+    if (requestedId && !isSelfOrStaff(auth.user, requestedId)) {
+      return NextResponse.json(
+        { error: 'Không có quyền xem hồ sơ học viên khác' },
+        { status: 403 }
+      );
+    }
+    try {
+      const student = await repo.getStudentById(auth.user.id);
+      if (!student) return NextResponse.json({ student: null });
+      const enrolledClasses = await repo.getClassesByStudentId(auth.user.id);
+      return NextResponse.json({
+        student: { ...student, enrolledClassIds: enrolledClasses.map(c => c.id) },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi khi tải học viên';
+      return NextResponse.json({ student: null, error: message }, { status: 500 });
+    }
+  }
+
   const id = searchParams.get('id');
   const search = searchParams.get('search')?.toLowerCase();
   const status = searchParams.get('status');

@@ -1,0 +1,150 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { LocalRepository } from '../src/repositories/LocalRepository';
+import { GET as getStudents } from '../src/app/api/students/route';
+import { GET as getTeachers } from '../src/app/api/teachers/route';
+import { GET as getSchedule } from '../src/app/api/schedule/route';
+import { GET as getBootstrap } from '../src/app/api/bootstrap/route';
+import { GET as getSections } from '../src/app/api/classes/sections/route';
+import { authedAsStudent, authed, teacherUser } from './helpers/auth';
+
+/**
+ * Hồi quy cho lỗ hổng phân quyền đã khai thác được trên production:
+ * một học viên đọc được hồ sơ của mọi học viên, lương của giáo viên, lịch của
+ * học viên khác, và (ở route mật khẩu) chiếm được tài khoản quản trị.
+ */
+
+const json = async (res: Response) => res.json() as Promise<any>;
+
+test('Access scoping: học viên chỉ đọc được dữ liệu của chính mình', async (t) => {
+  const repo = LocalRepository.getInstance();
+  const self = 'ST001';
+  const other = 'ST002';
+  assert.ok(await repo.getStudentById(other), 'seed phải có ST002 để test');
+
+  await t.test('GET /api/students?id=<người khác> bị chặn', async () => {
+    const res = await getStudents(
+      authedAsStudent(self)(`http://localhost/api/students?id=${other}`)
+    );
+    assert.equal(res.status, 403);
+    assert.equal((await json(res)).student, undefined);
+  });
+
+  await t.test('GET /api/students không id chỉ trả hồ sơ của chính mình', async () => {
+    const res = await getStudents(authedAsStudent(self)('http://localhost/api/students'));
+    const data = await json(res);
+    assert.equal(res.status, 200);
+    assert.equal(data.student?.id, self);
+    // Không rò rỉ danh sách: không có mảng students.
+    assert.equal(data.students, undefined);
+  });
+
+  await t.test('GET /api/students?limit=all không mở toàn bảng cho học viên', async () => {
+    const res = await getStudents(
+      authedAsStudent(self)('http://localhost/api/students?limit=all')
+    );
+    const data = await json(res);
+    assert.equal(res.status, 200);
+    assert.equal(data.students, undefined);
+    assert.equal(data.student?.id, self);
+  });
+
+  await t.test('Nhân viên vẫn đọc được danh sách đầy đủ', async () => {
+    const res = await getStudents(authed('http://localhost/api/students?limit=all'));
+    const data = await json(res);
+    assert.equal(res.status, 200);
+    assert.ok(data.students.length > 1, 'admin phải thấy nhiều học viên');
+  });
+
+  await t.test('GET /api/teachers với vai trò học viên không lộ SĐT/lương', async () => {
+    const res = await getTeachers(authedAsStudent(self)('http://localhost/api/teachers'));
+    const data = await json(res);
+    assert.equal(res.status, 200);
+    assert.ok(data.teachers.length > 0);
+    for (const teacher of data.teachers) {
+      assert.equal(teacher.phone, undefined, 'SĐT giáo viên không được trả về');
+      assert.equal(teacher.hourlyRate, undefined, 'lương giờ không được trả về');
+      assert.equal(teacher.ratePerSession, undefined, 'lương buổi không được trả về');
+      assert.ok(teacher.name, 'vẫn phải có tên để hiển thị');
+    }
+  });
+
+  await t.test('Giáo viên vẫn nhận đủ hồ sơ giáo viên', async () => {
+    const res = await getTeachers(authed('http://localhost/api/teachers', {}, teacherUser));
+    const data = await json(res);
+    assert.equal(res.status, 200);
+    assert.ok(data.teachers.some((teacher: any) => teacher.hourlyRate !== undefined));
+  });
+
+  await t.test('GET /api/schedule?studentId=<người khác> bị chặn', async () => {
+    const res = await getSchedule(
+      authedAsStudent(self)(`http://localhost/api/schedule?studentId=${other}`)
+    );
+    assert.equal(res.status, 403);
+    assert.deepEqual((await json(res)).slots, []);
+  });
+
+  await t.test('GET /api/schedule trần (không tham số) bị chặn cho học viên', async () => {
+    const res = await getSchedule(authedAsStudent(self)('http://localhost/api/schedule'));
+    assert.equal(res.status, 403);
+  });
+
+  await t.test('GET /api/schedule theo classId vẫn dùng được cho học viên', async () => {
+    const cls = (await repo.getAllClasses())[0];
+    assert.ok(cls, 'seed phải có lớp');
+    const res = await getSchedule(
+      authedAsStudent(self)(`http://localhost/api/schedule?classId=${cls.id}`)
+    );
+    assert.equal(res.status, 200);
+  });
+
+  await t.test('GET /api/bootstrap?scope=students bị chặn cho học viên', async () => {
+    const res = await getBootstrap(
+      authedAsStudent(self)('http://localhost/api/bootstrap?scope=students')
+    );
+    assert.equal(res.status, 403);
+  });
+
+  await t.test('GET /api/bootstrap không lộ SĐT giáo viên cho học viên', async () => {
+    const res = await getBootstrap(
+      authedAsStudent(self)('http://localhost/api/bootstrap?scope=teachers')
+    );
+    const data = await json(res);
+    assert.equal(res.status, 200);
+    for (const teacher of data.teachers) {
+      assert.equal(teacher.phone, undefined);
+      assert.equal(teacher.hourlyRate, undefined);
+    }
+  });
+
+  await t.test('Admin vẫn bootstrap được danh sách học viên', async () => {
+    const res = await getBootstrap(
+      authed('http://localhost/api/bootstrap?scope=students')
+    );
+    const data = await json(res);
+    assert.equal(res.status, 200);
+    assert.ok(Array.isArray(data.students));
+  });
+
+  await t.test('GET /api/classes/sections?all=true bị chặn cho học viên', async () => {
+    const res = await getSections(
+      authedAsStudent(self)('http://localhost/api/classes/sections?all=true')
+    );
+    assert.equal(res.status, 403);
+  });
+
+  await t.test('GET /api/classes/sections?studentId=<người khác> bị chặn', async () => {
+    const res = await getSections(
+      authedAsStudent(self)(`http://localhost/api/classes/sections?studentId=${other}`)
+    );
+    assert.equal(res.status, 403);
+  });
+
+  await t.test('GET /api/classes/sections theo classId vẫn dùng được cho học viên', async () => {
+    const cls = (await repo.getAllClasses())[0];
+    const res = await getSections(
+      authedAsStudent(self)(`http://localhost/api/classes/sections?classId=${cls.id}`)
+    );
+    assert.equal(res.status, 200);
+  });
+});
