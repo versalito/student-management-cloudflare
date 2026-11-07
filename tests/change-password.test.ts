@@ -67,9 +67,11 @@ describe('Self-service Password Change Suite', () => {
     assert.equal(res.status, 400);
   });
 
-  it('5. Tài khoản không tồn tại thì trả 404', async () => {
+  it('5. Phiên trỏ tới tài khoản không tồn tại bị từ chối ở tầng xác thực', async () => {
+    // Trước đây token chỉ được kiểm chữ ký nên handler còn chạy tới bước tra DB.
+    // Nay `requireUser` đối chiếu tài khoản với DB, nên phiên giả bị chặn sớm.
     const res = await changePassword(req({ userId: 'KHONG_TON_TAI', currentPassword: 'a123456', newPassword: 'b123456' }));
-    assert.equal(res.status, 404);
+    assert.equal(res.status, 401);
   });
 
   it('7. Không đổi được mật khẩu của người khác, kể cả khi biết mật khẩu hiện tại của họ', async () => {
@@ -78,7 +80,7 @@ describe('Self-service Password Change Suite', () => {
     // hổng chiếm tài khoản (học viên đổi được mật khẩu của quản trị viên vì
     // mật khẩu mặc định ai cũng biết).
     const res = await changePassword(
-      req({ userId, currentPassword: 'matkhau_cu', newPassword: 'chiem_tai_khoan' }, 'ST_KHAC_01')
+      req({ userId, currentPassword: 'matkhau_cu', newPassword: 'chiem_tai_khoan' }, 'ST002')
     );
     const data = await res.json();
     assert.equal(res.status, 403);

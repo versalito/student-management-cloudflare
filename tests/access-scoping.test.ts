@@ -224,3 +224,29 @@ test('Access scoping: học viên không nhận danh sách mã học viên của
     assert.ok(data.classes.some((klass) => Array.isArray(klass.studentIds)));
   });
 });
+
+test('Access scoping: khoá tài khoản thu hồi ngay phiên đang mở', async (t) => {
+  const repo = LocalRepository.getInstance();
+  const id = 'ST002';
+
+  await t.test('phiên của tài khoản bị khoá bị từ chối ở mọi route, không chỉ /api/auth/me', async () => {
+    const before = await repo.getUserById(id);
+    assert.ok(before?.isActive, 'seed phải có ST002 đang hoạt động');
+
+    // Token vẫn còn hạn 8 h; đây chính là điều kiện của lỗ hổng cũ.
+    const request = () => authedAsStudent(id)('http://localhost/api/students');
+    assert.equal((await getStudents(request())).status, 200);
+
+    try {
+      await repo.updateUser({ ...before, isActive: false });
+      assert.equal(
+        (await getStudents(request())).status,
+        401,
+        'phiên cũ của tài khoản đã khoá không được chạm dữ liệu'
+      );
+    } finally {
+      const after = await repo.getUserById(id);
+      if (after) await repo.updateUser({ ...after, isActive: true });
+    }
+  });
+});

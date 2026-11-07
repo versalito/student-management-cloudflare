@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { Role } from '@/types/auth';
+import { repo } from '@/repositories';
 
 /**
  * Phiên đăng nhập phía server: cookie HttpOnly chứa payload ký HMAC-SHA256.
@@ -221,6 +222,13 @@ export async function requireUser(request: Request, allowedRoles?: readonly Role
 
   if (!session) {
     throw new ApiAuthError('Chưa đăng nhập hoặc phiên đã hết hạn', 401);
+  }
+  // Token chỉ chứng minh "đã đăng nhập lúc ký"; trạng thái tài khoản có thể đổi
+  // sau đó. Khoá tài khoản mà phiên cũ vẫn dùng được thì việc khoá vô nghĩa,
+  // nên mỗi request phải đọc lại `isActive` từ DB.
+  const user = await repo.getUserById(session.user.id);
+  if (!user || !user.isActive) {
+    throw new ApiAuthError('Tài khoản đã bị khoá hoặc không còn tồn tại', 401);
   }
   if (allowedRoles && !allowedRoles.includes(session.user.role)) {
     throw new ApiAuthError('Tài khoản không có quyền thực hiện thao tác này', 403);
