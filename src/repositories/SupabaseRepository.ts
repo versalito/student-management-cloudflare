@@ -554,6 +554,23 @@ function mapSessionBookingToDb(booking: StudentSessionBooking): any {
   };
 }
 
+/**
+ * PostgREST báo `PGRST205` khi bảng chưa có trong schema cache — tức migration
+ * `update_2026-11-06-student-session-bookings.sql` chưa chạy trên DB đó.
+ *
+ * Bảng này chỉ phục vụ tính năng buổi lẻ; thiếu nó không được phép làm sập thời
+ * khoá biểu và điểm danh (những đường đọc gọi `getSessionBookings` chung một
+ * request). Đọc thì coi như chưa có booking nào; ghi thì báo lỗi rõ ràng.
+ */
+export function isMissingBookingsTable(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  if (error.code === 'PGRST205') return true;
+  return /Could not find the table 'public\.student_session_bookings'/.test(error.message || '');
+}
+
+const BOOKINGS_TABLE_MISSING_MESSAGE =
+  'Chưa chạy migration buổi lẻ trên database: chạy supabase/update_2026-11-06-student-session-bookings.sql trong SQL Editor của Supabase.';
+
 // ============================================================================
 // SUPABASE REPOSITORY IMPLEMENTATION
 // ============================================================================
@@ -1447,7 +1464,10 @@ export class SupabaseRepository implements IRepository {
       if (filter.statuses) q = q.in('status', filter.statuses);
 
       const { data, error } = await q;
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (isMissingBookingsTable(error)) return [];
+        throw new Error(error.message);
+      }
       return (data || []).map(mapSessionBookingFromDb);
     } catch (err) {
       throw err;
@@ -1463,7 +1483,7 @@ export class SupabaseRepository implements IRepository {
       .insert({ ...mapSessionBookingToDb(booking), id: booking.id })
       .select('id, student_id, slot_id, status, created_at, updated_at')
       .single();
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(isMissingBookingsTable(error) ? BOOKINGS_TABLE_MISSING_MESSAGE : error.message);
     return mapSessionBookingFromDb(data);
   }
 
@@ -1477,7 +1497,7 @@ export class SupabaseRepository implements IRepository {
       .eq('id', booking.id)
       .select('id, student_id, slot_id, status, created_at, updated_at')
       .single();
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(isMissingBookingsTable(error) ? BOOKINGS_TABLE_MISSING_MESSAGE : error.message);
     return mapSessionBookingFromDb(data);
   }
 
