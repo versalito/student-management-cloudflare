@@ -137,7 +137,7 @@ export default function StudentClassesPage() {
         for (const cid of allIds) {
           const secs = secByClass[cid] || [];
           nextMap[cid] = secs;
-          const mine = secs.find((sec) => (sec.studentIds || []).includes(currentUser.id));
+          const mine = secs.find((sec) => sec.isMine);
           if (mine) nextCurrent[cid] = mine.id;
           // Lớp đang mở chỉ có 1 ca thì chọn sẵn để đăng ký nhanh.
           if (!enrolledIds.has(cid) && secs.length === 1) {
@@ -355,7 +355,7 @@ export default function StudentClassesPage() {
           </span>
           <div className="flex items-center gap-1.5">
             <span className="font-semibold text-foreground tabular">
-              {(cls.studentIds?.length || 0)} học viên
+              {cls.studentCount ?? 0} học viên
             </span>
             {cls.meetingLink && (
               <a

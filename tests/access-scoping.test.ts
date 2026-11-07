@@ -6,6 +6,8 @@ import { GET as getTeachers } from '../src/app/api/teachers/route';
 import { GET as getSchedule } from '../src/app/api/schedule/route';
 import { GET as getBootstrap } from '../src/app/api/bootstrap/route';
 import { GET as getSections } from '../src/app/api/classes/sections/route';
+import { GET as getFinance } from '../src/app/api/finance/route';
+import { GET as getClasses } from '../src/app/api/classes/route';
 import { authedAsStudent, authed, teacherUser } from './helpers/auth';
 
 /**
@@ -146,5 +148,67 @@ test('Access scoping: học viên chỉ đọc được dữ liệu của chính
       authedAsStudent(self)(`http://localhost/api/classes/sections?classId=${cls.id}`)
     );
     assert.equal(res.status, 200);
+  });
+});
+
+test('Access scoping: giáo viên không đọc được sổ học phí', async (t) => {
+  await t.test('GET /api/finance với vai trò TEACHER bị chặn (RBAC: không có TUITION)', async () => {
+    const res = await getFinance(authed('http://localhost/api/finance', {}, teacherUser));
+    assert.equal(res.status, 403);
+    assert.equal((await json(res)).invoices, undefined);
+  });
+
+  await t.test('GET /api/finance vẫn mở cho ADMIN', async () => {
+    const res = await getFinance(authed('http://localhost/api/finance'));
+    assert.equal(res.status, 200);
+    assert.ok(Array.isArray((await json(res)).invoices));
+  });
+
+  await t.test('GET /api/finance cho STUDENT chỉ trả hoá đơn của chính mình', async () => {
+    const res = await getFinance(authedAsStudent('ST001')('http://localhost/api/finance?studentId=ST001'));
+    assert.equal(res.status, 200);
+    const invoices = (await json(res)).invoices as any[];
+    assert.ok(invoices.every((invoice) => invoice.studentId === 'ST001'));
+  });
+});
+
+test('Access scoping: học viên không nhận danh sách mã học viên của lớp/ca', async (t) => {
+  const repo = LocalRepository.getInstance();
+
+  await t.test('GET /api/classes trả studentCount thay cho studentIds', async () => {
+    const cls = (await repo.getAllClasses()).find((c) => (c.studentIds || []).length > 0);
+    assert.ok(cls, 'seed phải có lớp đã có học viên');
+    const res = await getClasses(authedAsStudent(cls.studentIds[0])('http://localhost/api/classes'));
+    const data = await json(res);
+    assert.equal(res.status, 200);
+    assert.ok(data.classes.length > 0);
+    for (const klass of data.classes) {
+      assert.equal(klass.studentIds, undefined, 'không được trả mã học viên');
+      assert.equal(typeof klass.studentCount, 'number');
+    }
+    const own = data.classes.find((klass: any) => klass.id === cls.id);
+    assert.equal(own.isMine, true, 'học viên nhận ra lớp của mình qua isMine');
+  });
+
+  await t.test('GET /api/classes/sections trả isMine/studentCount thay cho studentIds', async () => {
+    const cls = (await repo.getAllClasses()).find((c) => (c.studentIds || []).length > 0);
+    assert.ok(cls);
+    const res = await getSections(
+      authedAsStudent(cls.studentIds[0])(`http://localhost/api/classes/sections?classId=${cls.id}`)
+    );
+    const data = await json(res);
+    assert.equal(res.status, 200);
+    assert.ok(data.sections.length > 0);
+    for (const section of data.sections) {
+      assert.equal(section.studentIds, undefined, 'không được trả mã học viên');
+      assert.equal(section.studentScheduleDays, undefined, 'không được trả thứ riêng của người khác');
+      assert.equal(typeof section.studentCount, 'number');
+    }
+  });
+
+  await t.test('ADMIN vẫn nhận đủ studentIds', async () => {
+    const res = await getClasses(authed('http://localhost/api/classes'));
+    const data = await json(res);
+    assert.ok(data.classes.some((klass: any) => Array.isArray(klass.studentIds)));
   });
 });

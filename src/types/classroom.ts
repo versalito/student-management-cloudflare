@@ -13,6 +13,8 @@ export interface ClassEntity {
   isRecurring?: boolean; // Mặc định true: Lớp chạy xuyên suốt liên tục
   meetingLink?: string; // Link phòng học online (Google Meet, Zoom...)
   status: 'Đang mở' | 'Sắp khai giảng' | 'Đã kết thúc';
+  // Chỉ có ở phản hồi dành cho học viên: `studentIds` bị bỏ, chỉ còn số lượng.
+  studentCount?: number;
 }
 
 /** Một ca học riêng trong một lớp (lớp có thể có nhiều ca). */
@@ -29,6 +31,9 @@ export interface ClassSection {
   studentIds?: string[];  // Danh sách học sinh thuộc ca (nạp khi cần)
   // Thứ riêng từng học sinh trong ca: studentId -> danh sách thứ (2..8). Rỗng = theo đủ lịch ca.
   studentScheduleDays?: Record<string, number[]>;
+  // Chỉ có ở phản hồi dành cho học viên: ca này có học viên đang hỏi hay không.
+  isMine?: boolean;
+  studentCount?: number;
   createdAt?: string;
   updatedAt?: string;
 }

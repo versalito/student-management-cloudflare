@@ -8,6 +8,17 @@ import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
+/** Học viên không được thấy mã học viên của cả lớp: chỉ số lượng + ca của mình. */
+function toStudentView(sec: ClassSection, studentId: string) {
+  const { studentIds, studentScheduleDays, ...rest } = sec;
+  return {
+    ...rest,
+    studentCount: studentIds?.length ?? 0,
+    isMine: (studentIds || []).includes(studentId),
+    myScheduleDays: studentScheduleDays?.[studentId],
+  };
+}
+
 export async function GET(request: Request) {
   const auth = await authenticate(request, ['ADMIN','TEACHER','STUDENT']);
   if (auth.response) return auth.response;
@@ -22,7 +33,8 @@ export async function GET(request: Request) {
 
   // Học viên chỉ xem được ca của lớp (để chọn ca đăng ký) và ca của chính mình;
   // không được kéo ca của một học viên khác hay toàn bộ ca của trung tâm.
-  if (auth.user.role === 'STUDENT') {
+  const isStudent = auth.user.role === 'STUDENT';
+  if (isStudent) {
     if ((studentId && !isSelfOrStaff(auth.user, studentId)) || all === 'true') {
       return NextResponse.json(
         { error: 'Không có quyền xem ca học của người khác' },
@@ -40,7 +52,7 @@ export async function GET(request: Request) {
           { status: 403 }
         );
       }
-      return NextResponse.json({ section: sec });
+      return NextResponse.json({ section: toStudentView(sec, auth.user.id) });
     }
   }
 
@@ -56,17 +68,26 @@ export async function GET(request: Request) {
     const ids = classIdsParam.split(',').map((s) => s.trim()).filter(Boolean);
     const sectionsByClass: Record<string, ClassSection[]> = {};
     for (const cid of ids) {
-      sectionsByClass[cid] = await repo.getClassSections(cid);
+      const secs = await repo.getClassSections(cid);
+      // Học viên xem ca để chọn/đổi ca: cần biết mình có trong ca không và ca
+      // đông bao nhiêu, không cần mã học viên của cả lớp.
+      sectionsByClass[cid] = isStudent
+        ? secs.map((sec) => toStudentView(sec, auth.user.id))
+        : secs;
     }
     return NextResponse.json({ sectionsByClass });
   }
   if (classId) {
     const sections = await repo.getClassSections(classId);
-    return NextResponse.json({ sections });
+    return NextResponse.json({
+      sections: isStudent ? sections.map((sec) => toStudentView(sec, auth.user.id)) : sections,
+    });
   }
   if (studentId) {
     const sections = await repo.getSectionsByStudentId(studentId);
-    return NextResponse.json({ sections });
+    return NextResponse.json({
+      sections: isStudent ? sections.map((sec) => toStudentView(sec, auth.user.id)) : sections,
+    });
   }
   if (teacherId) {
     const sections = await repo.getSectionsByTeacherId(teacherId);

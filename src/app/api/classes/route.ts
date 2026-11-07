@@ -3,12 +3,21 @@ import { repo } from '@/repositories';
 import { cachedJson } from '@/lib/cache/referenceCache';
 import { BulkScheduleService } from '@/services/BulkScheduleService';
 import { ShiftService } from '@/services/ShiftService';
-import { ClassSection } from '@/types/classroom';
+import { ClassEntity, ClassSection } from '@/types/classroom';
 import { ScheduleSlot } from '@/types/schedule';
 import { getTodayDateStr, getTodayDateStrByDate, dateToDayOfWeek } from '@/utils/date';
 import { authenticate } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Học viên cần thông tin lớp để chọn ca và đăng ký, nhưng danh sách `studentIds`
+ * là dữ liệu của cả lớp — trả về số lượng thay vì danh sách mã học viên.
+ */
+function toStudentView(cls: ClassEntity, studentId: string) {
+  const { studentIds, ...rest } = cls;
+  return { ...rest, studentCount: studentIds?.length ?? 0, isMine: (studentIds || []).includes(studentId) };
+}
 
 export async function GET(request: Request) {
   const auth = await authenticate(request, ['ADMIN','TEACHER','STUDENT']);
@@ -18,16 +27,23 @@ export async function GET(request: Request) {
   const teacherId = searchParams.get('teacherId');
   const studentId = searchParams.get('studentId');
   const id = searchParams.get('id');
+  const isStudent = auth.user.role === 'STUDENT';
 
   try {
     if (id) {
       const cls = await repo.getClassById(id);
-      return NextResponse.json({ class: cls });
+      if (!cls) return NextResponse.json({ class: null });
+      return NextResponse.json({ class: isStudent ? toStudentView(cls, auth.user.id) : cls });
     }
 
     // Đường đọc phổ biến nhất (mọi trang admin): danh sách lớp đầy đủ, ít đổi.
     if (!studentId && !teacherId) {
-      return await cachedJson('classes', 'all', () => repo.getAllClasses(), (classes) => ({ classes }));
+      const all = await cachedJson('classes', 'all', () => repo.getAllClasses(), (classes) => ({ classes }));
+      if (!isStudent) return all;
+      const { classes } = await all.json();
+      return NextResponse.json({
+        classes: classes.map((cls: ClassEntity) => toStudentView(cls, auth.user.id)),
+      });
     }
 
     // Lọc ở tầng dữ liệu: chỉ đọc đúng lớp cần dùng thay vì tải toàn bộ rồi lọc JS.
@@ -48,7 +64,11 @@ export async function GET(request: Request) {
       }
     }
 
-    return NextResponse.json({ classes });
+    return NextResponse.json({
+      classes: isStudent
+        ? classes.map((cls: ClassEntity) => toStudentView(cls, auth.user.id))
+        : classes,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Lỗi khi tải lớp học';
     return NextResponse.json({ classes: [], error: message }, { status: 500 });

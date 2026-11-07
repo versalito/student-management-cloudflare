@@ -66,7 +66,9 @@ function normalizeInvoiceStatus<T extends { status: TuitionStatus }>(inv: T): T 
 }
 
 export async function GET(request: Request) {
-  const auth = await authenticate(request, ['ADMIN','STUDENT','TEACHER']);
+  // Giáo viên không có quyền TUITION (xem AuthService.checkPermission): sổ học
+  // phí chứa số tiền từng học viên đã nộp, không thuộc phạm vi việc dạy.
+  const auth = await authenticate(request, ['ADMIN','STUDENT']);
   if (auth.response) return auth.response;
 
   const { searchParams } = new URL(request.url);
