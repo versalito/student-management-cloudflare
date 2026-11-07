@@ -60,6 +60,11 @@ export interface StudentPageQuery {
   status?: string;
   /** Mã lọc mục tiêu trường + khối thi, xem `src/lib/studentFilters.ts`. */
   uni?: string;
+  /**
+   * Giới hạn theo tập id cụ thể (phạm vi giáo viên: chỉ học viên thuộc lớp/ca
+   * mình dạy). Lọc ở SQL để `total` và phân trang vẫn đúng.
+   */
+  studentIds?: string[];
 }
 
 export interface StudentPage {

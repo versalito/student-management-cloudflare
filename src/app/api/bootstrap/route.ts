@@ -97,7 +97,14 @@ export async function GET(request: Request) {
     if (wants.has('slots')) {
       tasks.push(
         loadScheduleView(
-          { date, studentId: searchParams.get('studentId') || undefined },
+          {
+            date,
+            // Học viên chỉ nhận lịch của chính mình — xem ghi chú ở
+            // `GET /api/schedule`: thiếu ràng buộc này là rò rỉ lịch toàn trung tâm.
+            studentId: auth.user.role === 'STUDENT'
+              ? auth.user.id
+              : searchParams.get('studentId') || undefined,
+          },
           { classes: classes ?? undefined, teachers: teachers ?? undefined }
         ).then((view) => {
           body.slots = view.slots;

@@ -76,7 +76,7 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const auth = await authenticate(request, ['ADMIN']);
+  const auth = await authenticate(request, ['ADMIN', 'TEACHER']);
   if (auth.response) return auth.response;
 
   try {
@@ -103,6 +103,31 @@ export async function PUT(request: Request) {
     const cls = await repo.getClassById(classId);
     if (!cls) {
       return NextResponse.json({ error: 'Không tìm thấy lớp học' }, { status: 404 });
+    }
+
+    // Giáo viên chỉ được "nhận" lớp cũ chưa có ca học (chưa phân công), và chỉ
+    // gán cho chính mình. Mọi thay đổi khác (tên, học phí, giờ, đổi GV) là quyền
+    // quản trị — trước đây teacher/schedule gọi vào đây và luôn nhận 403.
+    if (auth.user.role === 'TEACHER') {
+      const isUnassigned =
+        !cls.teacherId || cls.teacherId === 'CHUA_PHAN_CONG' || cls.teacherId === '';
+      const onlyClaimsSelf =
+        teacherId === auth.user.id &&
+        name === undefined &&
+        subject === undefined &&
+        tuitionFee === undefined &&
+        shiftId === undefined &&
+        startTime === undefined &&
+        endTime === undefined &&
+        scheduleDays === undefined &&
+        isRecurring === undefined &&
+        meetingLink === undefined;
+      if (!isUnassigned || !onlyClaimsSelf) {
+        return NextResponse.json(
+          { error: 'Chỉ quản trị viên được sửa lớp; bạn chỉ có thể nhận lớp chưa phân công' },
+          { status: 403 }
+        );
+      }
     }
 
     const oldTeacherId = cls.teacherId;

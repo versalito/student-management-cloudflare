@@ -5,9 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { Button, Field, Input } from '@/components/ui';
 import {
-  ShieldCheck,
-  UserCheck,
-  Users,
   ArrowRight,
   AlertCircle,
   Lock,
@@ -21,10 +18,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-
-  const showDevQuickLogin =
-    process.env.NODE_ENV === 'development' ||
-    process.env.NEXT_PUBLIC_ENABLE_DEV_ROLE_SWITCHER === 'true';
 
   const performLogin = async (loginUsername: string, loginPassword: string) => {
     setError(null);
@@ -62,12 +55,6 @@ export default function LoginPage() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleQuickLogin = (quickUser: string, quickPass: string) => {
-    setUsername(quickUser);
-    setPassword(quickPass);
-    performLogin(quickUser, quickPass);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -136,44 +123,6 @@ export default function LoginPage() {
               {isLoading ? 'Đang kiểm tra' : 'Đăng nhập'}
             </Button>
           </form>
-
-          {showDevQuickLogin && (
-            <div className="pt-4 border-t border-line space-y-2.5">
-              <p className="text-[12px] font-semibold text-muted-foreground text-center">Đăng nhập nhanh (Dev)</p>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  disabled={isLoading}
-                  onClick={() => handleQuickLogin('admin', 'admin123')}
-                  className="rounded-field border border-line bg-muted px-2 py-2.5 flex flex-col items-center gap-1 text-foreground transition hover:border-primary hover:bg-primary-soft disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <ShieldCheck size={17} className="text-primary" />
-                  <span className="text-[12px] font-semibold">Quản trị</span>
-                  <span className="text-[11px] text-muted-foreground">admin</span>
-                </button>
-                <button
-                  type="button"
-                  disabled={isLoading}
-                  onClick={() => handleQuickLogin('gv001', 'teacher123')}
-                  className="rounded-field border border-line bg-muted px-2 py-2.5 flex flex-col items-center gap-1 text-foreground transition hover:border-primary hover:bg-primary-soft disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <UserCheck size={17} className="text-primary" />
-                  <span className="text-[12px] font-semibold">Giáo viên</span>
-                  <span className="text-[11px] text-muted-foreground">gv001</span>
-                </button>
-                <button
-                  type="button"
-                  disabled={isLoading}
-                  onClick={() => handleQuickLogin('st001', 'student123')}
-                  className="rounded-field border border-line bg-muted px-2 py-2.5 flex flex-col items-center gap-1 text-foreground transition hover:border-primary hover:bg-primary-soft disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <Users size={17} className="text-primary" />
-                  <span className="text-[12px] font-semibold">Học sinh</span>
-                  <span className="text-[11px] text-muted-foreground">st001</span>
-                </button>
-              </div>
-            </div>
-          )}
         </div>
 
         <p className="text-center text-[12px] text-subtle-foreground">Trung tâm luyện thi trực tuyến</p>

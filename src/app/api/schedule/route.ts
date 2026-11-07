@@ -13,22 +13,17 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
 
-  if (auth.user.role === 'STUDENT') {
-    const requestedStudentId = searchParams.get('studentId');
-    if (requestedStudentId && !isSelfOrStaff(auth.user, requestedStudentId)) {
-      return NextResponse.json(
-        { slots: [], error: 'Không có quyền xem lịch học của học viên khác' },
-        { status: 403 }
-      );
-    }
-    // Không có studentId thì phải thu hẹp theo lớp hoặc theo ngày: nếu không,
-    // một học viên gọi trần sẽ nhận toàn bộ lịch của trung tâm.
-    if (!requestedStudentId && !searchParams.get('classId') && !searchParams.get('date')) {
-      return NextResponse.json(
-        { slots: [], error: 'Cần chỉ định lớp hoặc ngày khi xem lịch học' },
-        { status: 403 }
-      );
-    }
+  // Học viên luôn bị ép về lịch của chính mình. Trước đây route chỉ kiểm tra
+  // `studentId` khi client tự truyền, nên `GET /api/schedule?date=...` trả về
+  // lịch của mọi lớp trong trung tâm (kèm link phòng học) cho bất kỳ học viên
+  // nào — kể cả người chưa được xếp vào lớp.
+  const isStudent = auth.user.role === 'STUDENT';
+  const requestedStudentId = searchParams.get('studentId');
+  if (isStudent && requestedStudentId && !isSelfOrStaff(auth.user, requestedStudentId)) {
+    return NextResponse.json(
+      { slots: [], error: 'Không có quyền xem lịch học của học viên khác' },
+      { status: 403 }
+    );
   }
 
   try {
@@ -36,9 +31,11 @@ export async function GET(request: Request) {
       date: searchParams.get('date') || undefined,
       dateFrom: searchParams.get('from') || undefined,
       dateTo: searchParams.get('to') || undefined,
+      // Lớp/giáo viên: học viên chỉ xin được lịch của lớp mình đã ghi danh —
+      // `ScheduleViewService` kiểm tra lại, lớp ngoài phạm vi bị bỏ qua.
       classId: searchParams.get('classId') || undefined,
-      teacherId: searchParams.get('teacherId') || undefined,
-      studentId: searchParams.get('studentId') || undefined,
+      teacherId: isStudent ? undefined : searchParams.get('teacherId') || undefined,
+      studentId: isStudent ? auth.user.id : searchParams.get('studentId') || undefined,
     });
 
     return NextResponse.json({ slots: view.slots });

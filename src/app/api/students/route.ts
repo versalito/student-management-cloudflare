@@ -3,6 +3,7 @@ import { repo } from '@/repositories';
 import { MAX_STUDENT_PAGE_LIMIT } from '@/repositories/IRepository';
 import { StudentService } from '@/services/StudentService';
 import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
+import { getTeacherStudentIds, teacherTeachesStudent } from '@/lib/auth/studentScope';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,6 +54,13 @@ export async function GET(request: Request) {
 
   if (id) {
     try {
+      // Giáo viên chỉ đọc hồ sơ học viên thuộc lớp/ca mình dạy.
+      if (auth.user.role === 'TEACHER' && !(await teacherTeachesStudent(auth.user.id, id))) {
+        return NextResponse.json(
+          { student: null, error: 'Học viên này không thuộc lớp bạn phụ trách' },
+          { status: 403 }
+        );
+      }
       const student = await repo.getStudentById(id);
       if (!student) return NextResponse.json({ student: null });
       const enrolledClasses = await repo.getClassesByStudentId(id);
@@ -69,6 +77,12 @@ export async function GET(request: Request) {
   // kèm lớp ghi danh embed. Việc đối soát hồ sơ thiếu chuyển sang
   // POST /api/admin/reconcile (npm run db:reconcile) — không ghi trong GET.
   try {
+    // Giáo viên chỉ nhận học viên thuộc lớp/ca mình dạy. Lọc ở tầng dữ liệu để
+    // `total` và phân trang không lệch (ước lượng ở JS sẽ hiện trang rỗng).
+    const scopedIds = auth.user.role === 'TEACHER'
+      ? Array.from(await getTeacherStudentIds(auth.user.id))
+      : undefined;
+
     const { students, total } = await repo.getStudentsPage({
       search,
       page,
@@ -76,6 +90,7 @@ export async function GET(request: Request) {
       all: limitParam === 'all',
       status: status || undefined,
       uni: uni || undefined,
+      studentIds: scopedIds,
     });
 
     return NextResponse.json({

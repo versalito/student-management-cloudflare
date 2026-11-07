@@ -8,6 +8,11 @@ import { GET as getBootstrap } from '../src/app/api/bootstrap/route';
 import { GET as getSections } from '../src/app/api/classes/sections/route';
 import { GET as getFinance } from '../src/app/api/finance/route';
 import { GET as getClasses } from '../src/app/api/classes/route';
+import { GET as getPayroll } from '../src/app/api/payroll/route';
+import { GET as getAttendance, POST as postAttendance } from '../src/app/api/attendance/route';
+import { GET as getStudentDetail } from '../src/app/api/students/[id]/route';
+import { POST as postSection, PUT as putSection } from '../src/app/api/classes/sections/route';
+import { PUT as putClass } from '../src/app/api/classes/route';
 import { authedAsStudent, authed, teacherUser } from './helpers/auth';
 
 /**
@@ -24,7 +29,7 @@ interface Json {
   classes: { id: string; studentIds?: string[]; studentCount?: number; isMine?: boolean }[];
   sections: { studentIds?: unknown; studentScheduleDays?: unknown; studentCount?: number }[];
   invoices: { studentId: string }[];
-  slots: unknown[];
+  slots: { classId?: string }[];
 }
 
 const json = async (res: Response) => res.json() as Promise<Json>;
@@ -97,14 +102,37 @@ test('Access scoping: học viên chỉ đọc được dữ liệu của chính
     assert.deepEqual((await json(res)).slots, []);
   });
 
-  await t.test('GET /api/schedule trần (không tham số) bị chặn cho học viên', async () => {
+  await t.test('GET /api/schedule trần chỉ trả ca của lớp chính học viên', async () => {
+    // Bất biến: không lộ ca/link phòng của lớp mà học viên không ghi danh —
+    // kể cả khi client không truyền `studentId`.
     const res = await getSchedule(authedAsStudent(self)('http://localhost/api/schedule'));
-    assert.equal(res.status, 403);
+    assert.equal(res.status, 200);
+    const { slots } = await json(res);
+    const enrolled = new Set((await repo.getClassesByStudentId(self)).map((cls) => cls.id));
+    assert.ok(enrolled.size > 0, 'seed phải ghi danh ST001 vào ít nhất 1 lớp');
+    for (const slot of slots) {
+      const classId = (slot as { classId?: string }).classId;
+      assert.ok(
+        !classId || enrolled.has(classId),
+        `lộ ca của lớp ${classId} mà ${self} không ghi danh`
+      );
+    }
   });
 
-  await t.test('GET /api/schedule theo classId vẫn dùng được cho học viên', async () => {
-    const cls = (await repo.getAllClasses())[0];
-    assert.ok(cls, 'seed phải có lớp');
+  await t.test('GET /api/schedule?classId=<lớp ngoài> không trả ca nào', async () => {
+    const enrolled = new Set((await repo.getClassesByStudentId(self)).map((cls) => cls.id));
+    const foreign = (await repo.getAllClasses()).find((cls) => !enrolled.has(cls.id));
+    assert.ok(foreign, 'seed phải có lớp mà ST001 không ghi danh');
+    const res = await getSchedule(
+      authedAsStudent(self)(`http://localhost/api/schedule?classId=${foreign.id}`)
+    );
+    assert.equal(res.status, 200);
+    assert.deepEqual((await json(res)).slots, []);
+  });
+
+  await t.test('GET /api/schedule theo classId của chính mình vẫn dùng được', async () => {
+    const cls = (await repo.getClassesByStudentId(self))[0];
+    assert.ok(cls, 'seed phải ghi danh ST001 vào ít nhất 1 lớp');
     const res = await getSchedule(
       authedAsStudent(self)(`http://localhost/api/schedule?classId=${cls.id}`)
     );
@@ -247,6 +275,216 @@ test('Access scoping: khoá tài khoản thu hồi ngay phiên đang mở', asyn
     } finally {
       const after = await repo.getUserById(id);
       if (after) await repo.updateUser({ ...after, isActive: true });
+    }
+  });
+});
+
+test('Access scoping: giáo viên chỉ chạm học viên và lớp mình dạy', async (t) => {
+  const repo = LocalRepository.getInstance();
+  const teacherId = 'GV001';
+  const ownClasses = await repo.getClassesByTeacherId(teacherId);
+  const foreignClass = (await repo.getAllClasses()).find((cls) => cls.teacherId !== teacherId);
+  assert.ok(ownClasses.length > 0, 'seed phải giao lớp cho GV001');
+  assert.ok(foreignClass, 'seed phải có lớp của giáo viên khác');
+
+  const ownStudentId = ownClasses[0].studentIds[0];
+  const foreignStudentId = (foreignClass.studentIds || []).find(
+    (id) => !ownClasses.some((cls) => (cls.studentIds || []).includes(id))
+  );
+  assert.ok(ownStudentId, 'lớp của GV001 phải có học viên');
+  assert.ok(foreignStudentId, 'lớp khác phải có học viên ngoài lớp GV001');
+
+  await t.test('GET /api/students chỉ trả học viên thuộc lớp mình dạy', async () => {
+    const res = await getStudents(
+      authed('http://localhost/api/students?limit=all', {}, teacherUser)
+    );
+    const data = await json(res);
+    assert.equal(res.status, 200);
+    const allowed = new Set(ownClasses.flatMap((cls) => cls.studentIds || []));
+    assert.ok(data.students.length > 0);
+    for (const student of data.students) {
+      assert.ok(allowed.has(student.id), `lộ hồ sơ ${student.id} ngoài lớp GV001`);
+    }
+  });
+
+  await t.test('GET /api/students/:id ngoài lớp bị chặn', async () => {
+    const res = await getStudentDetail(
+      authed(`http://localhost/api/students/${foreignStudentId}`, {}, teacherUser),
+      { params: Promise.resolve({ id: foreignStudentId! }) }
+    );
+    assert.equal(res.status, 403);
+  });
+
+  await t.test('GET /api/students/:id trong lớp vẫn đọc được', async () => {
+    const res = await getStudentDetail(
+      authed(`http://localhost/api/students/${ownStudentId}`, {}, teacherUser),
+      { params: Promise.resolve({ id: ownStudentId }) }
+    );
+    assert.equal(res.status, 200);
+  });
+
+  await t.test('GET /api/payroll không tham số chỉ trả lương của chính mình', async () => {
+    const res = await getPayroll(
+      authed('http://localhost/api/payroll?month=2026-09', {}, teacherUser)
+    );
+    const data = (await res.json()) as { payroll?: { teacherId?: string }; payrolls?: unknown };
+    assert.equal(res.status, 200);
+    assert.equal(data.payrolls, undefined, 'không được trả bảng lương toàn trung tâm');
+    assert.equal(data.payroll?.teacherId, teacherId);
+  });
+
+  await t.test('GET /api/attendance không classId chỉ trả sổ của lớp mình', async () => {
+    const res = await getAttendance(
+      authed('http://localhost/api/attendance?date=2026-09-02', {}, teacherUser)
+    );
+    const records = ((await res.json()) as { records: { classId: string }[] }).records;
+    assert.equal(res.status, 200);
+    const allowed = new Set(ownClasses.map((cls) => cls.id));
+    for (const record of records) {
+      assert.ok(allowed.has(record.classId), `lộ sổ điểm danh lớp ${record.classId}`);
+    }
+  });
+
+  await t.test('POST /api/attendance cho lớp ngoài phạm vi bị chặn', async () => {
+    const res = await postAttendance(
+      authed(
+        'http://localhost/api/attendance',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            record: {
+              id: 'ATT_TEST_FOREIGN',
+              scheduleSlotId: 'SLOT_TEST',
+              classId: foreignClass.id,
+              studentId: foreignStudentId,
+              date: '2026-09-02',
+              status: 'Có mặt',
+            },
+          }),
+        },
+        teacherUser
+      )
+    );
+    assert.equal(res.status, 403);
+  });
+});
+
+test('Access scoping: giáo viên không đổi được giáo viên/ca của lớp khác', async (t) => {
+  const repo = LocalRepository.getInstance();
+  const ownClass = (await repo.getClassesByTeacherId('GV001'))[0];
+  const foreignClass = (await repo.getAllClasses()).find((cls) => cls.teacherId !== 'GV001');
+  assert.ok(ownClass && foreignClass, 'seed phải có lớp của GV001 và lớp của người khác');
+
+  const foreignSection = (await repo.getClassSections(foreignClass.id))[0];
+
+  await t.test('PUT /api/classes/sections cướp ca của giáo viên khác bị chặn', async () => {
+    assert.ok(foreignSection, 'lớp khác phải có ca');
+    const res = await putSection(
+      authed(
+        'http://localhost/api/classes/sections',
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sectionId: foreignSection.id, teacherId: 'GV001' }),
+        },
+        teacherUser
+      )
+    );
+    assert.equal(res.status, 403);
+  });
+
+  await t.test('PUT /api/classes/sections không gán ca sang người khác được', async () => {
+    const res = await putSection(
+      authed(
+        'http://localhost/api/classes/sections',
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sectionId: foreignSection.id, teacherId: 'GV002' }),
+        },
+        teacherUser
+      )
+    );
+    assert.equal(res.status, 403);
+  });
+
+  await t.test('POST /api/classes/sections (tạo ca) là quyền quản trị', async () => {
+    const res = await postSection(
+      authed(
+        'http://localhost/api/classes/sections',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ classId: foreignClass.id, startTime: '07:00', endTime: '09:00' }),
+        },
+        teacherUser
+      )
+    );
+    assert.equal(res.status, 403);
+  });
+
+  await t.test('PUT /api/classes đổi giáo viên lớp khác bị chặn', async () => {
+    const res = await putClass(
+      authed(
+        'http://localhost/api/classes',
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ classId: foreignClass.id, teacherId: 'GV001' }),
+        },
+        teacherUser
+      )
+    );
+    assert.equal(res.status, 403);
+  });
+});
+
+test('Access scoping: giáo viên vẫn nhận được ca chưa phân công', async (t) => {
+  const repo = LocalRepository.getInstance();
+  const available = (await repo.getAllClassSections()).find(
+    (sec) => !sec.teacherId || sec.teacherId === 'CHUA_PHAN_CONG' || sec.teacherId === ''
+  );
+
+  await t.test('PUT /api/classes/sections tự nhận ca trống trả 200', async () => {
+    if (!available) {
+      // Seed production không còn ca trống; tạo tạm để kiểm nhánh hợp lệ.
+      const cls = (await repo.getClassesByTeacherId('GV001'))[0];
+      await repo.createClassSection({
+        id: 'SEC_TEST_FREE',
+        classId: cls.id,
+        name: 'Ca trống',
+        shiftId: 1,
+        startTime: '07:00',
+        endTime: '09:00',
+        scheduleDays: [2, 4],
+        isActive: true,
+        studentIds: [],
+      });
+    }
+    const section = available
+      ?? (await repo.getSectionById('SEC_TEST_FREE'));
+    assert.ok(section);
+
+    try {
+      const res = await putSection(
+        authed(
+          'http://localhost/api/classes/sections',
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sectionId: section.id, teacherId: 'GV001' }),
+          },
+          teacherUser
+        )
+      );
+      assert.equal(res.status, 200);
+      const after = await repo.getSectionById(section.id);
+      assert.equal(after?.teacherId, 'GV001');
+    } finally {
+      if (section.id === 'SEC_TEST_FREE') {
+        await repo.deleteClassSection('SEC_TEST_FREE');
+      }
     }
   });
 });

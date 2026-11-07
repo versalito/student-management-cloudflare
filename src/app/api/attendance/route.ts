@@ -4,6 +4,7 @@ import { AttendanceRecord, AttendanceStatus } from '@/types/attendance';
 import { getTodayDateStr, getNowTimeStr, timeToMinutes, dateToDayOfWeek } from '@/utils/date';
 import { resolveScheduleSlotTimes } from '@/services/SlotTimeService';
 import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
+import { getTeacherClassIds, teacherTeachesClass } from '@/lib/auth/studentScope';
 import { settleBookingsAttended } from '@/services/BookingService';
 import { settleSlotStatusesFromAttendance } from '@/services/SlotSettlementService';
 
@@ -47,6 +48,25 @@ export async function GET(request: Request) {
     const requestedStudentId = new URL(request.url).searchParams.get('studentId');
     if (!isSelfOrStaff(auth.user, requestedStudentId)) {
       return NextResponse.json({ error: 'Không có quyền xem điểm danh của người khác' }, { status: 403 });
+    }
+  }
+
+  // Giáo viên chỉ đọc sổ của lớp mình phụ trách. Không truyền `classId` thì
+  // giới hạn về đúng tập lớp đó, thay vì trả cả ngày của toàn trung tâm.
+  if (auth.user.role === 'TEACHER') {
+    const searchParams = new URL(request.url).searchParams;
+    const requestedClassId = searchParams.get('classId');
+    const allowed = await getTeacherClassIds(auth.user.id);
+    if (requestedClassId && !allowed.has(requestedClassId)) {
+      return NextResponse.json({ error: 'Lớp này không thuộc phạm vi bạn phụ trách' }, { status: 403 });
+    }
+    if (!requestedClassId) {
+      const records = await repo.getAttendanceByDate(
+        searchParams.get('date') || getTodayDateStr()
+      );
+      return NextResponse.json({
+        records: records.filter((record) => allowed.has(record.classId)),
+      });
     }
   }
 
@@ -325,6 +345,26 @@ export async function POST(request: Request) {
     const updatedBy = auth.user.id;
     const updaterName = auth.user.name;
     const userRole = auth.user.role;
+
+    // Giáo viên chỉ ghi sổ điểm danh cho lớp/ca mình phụ trách. Trước đây mọi
+    // tài khoản TEACHER ghi được cho bất kỳ lớp nào (đổi trạng thái, trừ buổi
+    // của học viên lớp khác).
+    if (userRole === 'TEACHER') {
+      const classIds = new Set<string>();
+      for (const record of Array.isArray(body.records) ? body.records : []) {
+        if (record?.classId) classIds.add(record.classId);
+      }
+      if (body.record?.classId) classIds.add(body.record.classId);
+      if (body.classId) classIds.add(body.classId);
+      for (const classId of classIds) {
+        if (!(await teacherTeachesClass(updatedBy, classId))) {
+          return NextResponse.json(
+            { success: false, error: 'Lớp này không thuộc phạm vi bạn phụ trách' },
+            { status: 403 }
+          );
+        }
+      }
+    }
 
     if (Array.isArray(body.records)) {
       // Bỏ qua các dòng chỉ để hiển thị trên sổ (học viên chưa được điểm danh).

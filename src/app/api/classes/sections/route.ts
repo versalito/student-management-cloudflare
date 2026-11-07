@@ -96,7 +96,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const auth = await authenticate(request, ['ADMIN','TEACHER']);
+  // Tạo ca là thao tác cấu trúc lớp: chỉ quản trị. Giáo viên vẫn nhận ca có sẵn
+  // qua PUT (claim) — xem nhánh quyền bên dưới.
+  const auth = await authenticate(request, ['ADMIN']);
   if (auth.response) return auth.response;
 
   try {
@@ -154,6 +156,30 @@ export async function PUT(request: Request) {
     if (!sectionId) return NextResponse.json({ error: 'Thiếu sectionId' }, { status: 400 });
     const sec = await repo.getSectionById(sectionId);
     if (!sec) return NextResponse.json({ error: 'Không tìm thấy ca học' }, { status: 404 });
+
+    // Giáo viên chỉ thao tác trên ca mình phụ trách, và chỉ được "nhận ca"
+    // (ca chưa phân công) hoặc sửa giờ/thứ của ca mình. Không được gán ca sang
+    // giáo viên khác hay cướp ca đã có người — trước đây mọi TEACHER làm được
+    // cả hai, kể cả đổi giáo viên của lớp người khác.
+    if (auth.user.role === 'TEACHER') {
+      const isUnassigned =
+        !sec.teacherId || sec.teacherId === 'CHUA_PHAN_CONG' || sec.teacherId === '';
+      const isOwn = sec.teacherId === auth.user.id;
+      const claimsSelf = teacherId === auth.user.id;
+      if (!isUnassigned && !isOwn) {
+        return NextResponse.json(
+          { error: 'Ca này đã được phân công cho giáo viên khác' },
+          { status: 403 }
+        );
+      }
+      if (teacherId !== undefined && !claimsSelf) {
+        return NextResponse.json(
+          { error: 'Bạn chỉ có thể nhận ca cho chính mình' },
+          { status: 403 }
+        );
+      }
+    }
+
     const oldTeacherId = sec.teacherId;
     const oldScheduleDays = sec.scheduleDays;
     if (name !== undefined) sec.name = name.trim();

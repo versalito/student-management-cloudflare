@@ -69,9 +69,21 @@ export async function loadScheduleView(
     }
 
     if (studentSections.length > 0) {
-      slotQuery.sectionIds = Array.from(new Set(studentSections.map((s) => s.id)));
-      slotQuery.classIds = Array.from(new Set(studentSections.map((s) => s.classId)));
-      slotQuery.includeUnsectioned = true;
+      // Học viên xin lịch của MỘT lớp mình đã ghi danh (dùng cho luồng đổi ca:
+      // các ca khác trong cùng lớp nằm ở section khác). Chỉ mở đúng lớp đó.
+      const enrolledClassIds = new Set(studentSections.map((s) => s.classId));
+      const requestedClassId = query.classId && enrolledClassIds.has(query.classId)
+        ? query.classId
+        : undefined;
+
+      if (requestedClassId) {
+        slotQuery.classIds = [requestedClassId];
+        slotQuery.includeUnsectioned = true;
+      } else {
+        slotQuery.sectionIds = Array.from(new Set(studentSections.map((s) => s.id)));
+        slotQuery.classIds = Array.from(enrolledClassIds);
+        slotQuery.includeUnsectioned = true;
+      }
       slotQuery.excludeCancelled = true;
       for (const sec of studentSections) {
         // Thứ riêng của học sinh trong ca; nếu chưa chọn thì dùng thứ của ca.

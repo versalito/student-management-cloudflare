@@ -257,6 +257,11 @@ export class LocalRepository implements IRepository {
       students = students.filter(student => student.status === query.status);
     }
 
+    if (query.studentIds) {
+      const allowed = new Set(query.studentIds);
+      students = students.filter(student => allowed.has(student.id));
+    }
+
     if (query.uni && query.uni !== 'ALL') {
       students = students.filter(student => matchesUniFilter(student, query.uni!));
     }

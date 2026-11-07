@@ -23,15 +23,16 @@ export async function GET(request: Request) {
 
   try {
     const { searchParams } = new URL(request.url);
-    const teacherId = searchParams.get('teacherId');
+    const requestedTeacherId = searchParams.get('teacherId');
     const month = searchParams.get('month') || currentMonth();
 
     // Giáo viên chỉ xem bảng lương của chính mình; xem toàn bộ là quyền quản trị.
-    if (auth.user.role === 'TEACHER') {
-      if (!isSelfOrStaff(auth.user, teacherId)) {
-        return NextResponse.json({ success: false, error: 'Không có quyền xem bảng lương của giáo viên khác' }, { status: 403 });
-      }
+    // Trước đây thiếu `teacherId` là rơi xuống nhánh "toàn bộ bảng lương", nên
+    // giáo viên bỏ tham số là đọc được lương của mọi người.
+    if (auth.user.role === 'TEACHER' && requestedTeacherId && !isSelfOrStaff(auth.user, requestedTeacherId)) {
+      return NextResponse.json({ success: false, error: 'Không có quyền xem bảng lương của giáo viên khác' }, { status: 403 });
     }
+    const teacherId = auth.user.role === 'TEACHER' ? auth.user.id : requestedTeacherId;
 
     const service = new TuitionPayrollService(repo);
 

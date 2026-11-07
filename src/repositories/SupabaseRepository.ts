@@ -834,6 +834,14 @@ export class SupabaseRepository implements IRepository {
         q = q.eq('status', query.status);
       }
 
+      // Phạm vi giáo viên: lọc ngay ở SQL để `count` và `range` vẫn đúng.
+      if (query.studentIds) {
+        if (query.studentIds.length === 0) {
+          return { students: [], total: 0 };
+        }
+        q = q.in('id', query.studentIds);
+      }
+
       if (query.uni === 'KHAC') {
         // "Khác" = chọn trường KHAC hoặc có nhập tên trường tự do.
         q = q.or('target_university.eq.KHAC,custom_university.not.is.null');

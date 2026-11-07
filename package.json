@@ -9,12 +9,13 @@
     "lint": "eslint . --max-warnings=347",
     "test": "DATA_SOURCE=local node --import tsx --test tests/**/*.test.ts",
     "db:reconcile": "node --import tsx scripts/reconcile-profiles.ts",
-    "build:cf": "opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion",
+    "build:cf": "opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion && node scripts/check-no-dev-credentials.mjs",
     "preview": "opennextjs-cloudflare preview",
-    "deploy": "opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion && wrangler deploy",
+    "deploy": "opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion && node scripts/check-no-dev-credentials.mjs && wrangler deploy",
     "db:audit-slots": "node --import tsx scripts/audit-slot-weekdays.ts",
     "db:reconcile-slots": "node scripts/reconcile-slots.mjs",
-    "keys:retire": "node scripts/retire-legacy-keys.mjs"
+    "keys:retire": "node scripts/retire-legacy-keys.mjs",
+    "check:dev-creds": "node scripts/check-no-dev-credentials.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",

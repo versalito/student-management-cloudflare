@@ -57,14 +57,17 @@ Hai secret cuối không đặt trong `wrangler.toml`; production nạp bằng `
 | Đọc chéo hồ sơ | học sinh đọc hồ sơ mình 200, hồ sơ khác 403 ✅ |
 | Đổi mật khẩu người khác | chỉ tự đổi được của mình; nhắm `ADMIN001` hay học viên khác → 403 ✅ |
 | Lộ SĐT/lương giáo viên | phiên học sinh nhận `{id,name,specialty,bio}`, không có `phone`/`hourlyRate`/`ratePerSession` ✅ |
-| Lịch/ca của người khác | `?studentId=<khác>`, `?all=true` → 403 ✅ |
+| Lịch/ca của người khác | `?studentId=<khác>`, `?all=true` → 403 ✅. Bổ sung 2026-11-07: `GET /api/schedule` **trần** (không tham số) chỉ trả ca của lớp học viên ghi danh — trước đó trả toàn trung tâm kèm link phòng; `?classId=<lớp ngoài>` trả `[]` |
+| Phạm vi giáo viên | `GET /api/students` chỉ trả học viên thuộc lớp/ca mình dạy (GV007: 1 hồ sơ, trước đó 400+); `GET /api/students/:id` ngoài lớp → 403; `GET /api/attendance?classId=<lớp khác>` → 403, không tham số chỉ trả sổ lớp mình; `POST /api/attendance` cho lớp khác → 403 |
+| Bảng lương | `GET /api/payroll` không `teacherId` với phiên TEACHER → chỉ trả `payroll` của chính mình (trước đó trả `payrolls` toàn trung tâm) |
+| Leo thang ca dạy | TEACHER `PUT /api/classes/sections` ca người khác → 403 ("Ca này đã được phân công cho giáo viên khác"), gán ca sang GV khác → 403, `POST` tạo ca → 403, `PUT /api/classes` đổi giáo viên → 403; nhận ca chưa phân công vẫn 200 |
 | Rate limit login | sai mật khẩu lần 5 trở đi → 429 ✅. Đo lại 2026-11-07: 4 lần sai → 401, lần 5/6/7 → **429**, và đăng nhập **đúng** trong cửa sổ khoá cũng bị 429 (đúng thiết kế, khoá 5 phút theo cặp IP+username). Bộ đếm nằm trong KV `RATE_LIMIT_KV` nên dùng chung giữa các isolate, không phải Map trong bộ nhớ. |
 | Lọc PostgREST qua `?id=` | `GET /api/users?id=` với `nope,role.eq.ADMIN`, `%`, `a)b`, `nope" %` đều trả **200 `{"user":null}`**; tra cứu thật (`ADMIN001`, `26007`, `gv_nguyen-thi-huong`) vẫn đúng. Trước bản vá 2026-11-07 hai chuỗi đầu trả **500** vì `maybeSingle()` ném lỗi khi `or(ilike)` khớp nhiều dòng, và input được ghép thẳng vào cú pháp `or(...)` ✅ |
 | Thu hồi phiên khi khoá tài khoản | khoá `26008` rồi dùng lại cookie cũ → `/api/students`, `/api/schedule` đều **401** (trước bản vá 2026-11-07 vẫn 200 trong suốt 8 h còn hạn của token) ✅ |
 | Cache asset | `/_next/static/*` → `public, max-age=31536000, immutable` ✅ |
 | Cache HTML | `private, no-store` ✅ |
 | RLS | `anon` key đọc `users/students/tuition_invoices/audit_logs` → 401 `permission denied` ✅ |
-| Mật khẩu tài khoản | Đã crack và **đăng nhập thật thành công** trên production: ADMIN `nguyễn văn tài` = `password123`, TEACHER `gv_nguyen-thi-huong` + STUDENT `26007` = `123456` (còn `đàm mỹ thuyết` = `password123`, học viên `26008` = `123456`). Cơ chế `AuthService.needsRehash` đã nâng hash các tài khoản này sang PBKDF2 ở lần login kế tiếp, nhưng **mật khẩu vẫn yếu** — đăng nhập `nguyễn văn tài`/`password123` vẫn trả 200 với quyền ADMIN ❌ |
+| Mật khẩu tài khoản | Đo lại 2026-11-07 (sau deploy vá phân quyền): TEACHER `gv_nguyen-thi-huong` = `123456` và STUDENT `26005`, `26007` = `123456` **vẫn đăng nhập được** ❌. Ngược lại ADMIN: thử `nguyễn văn tài`, `nguyen van tai`, `admin`, `ADMIN001` với `password123` đều trả 401 — mật khẩu admin đã được đổi (hoặc ghi nhận cũ trong bảng này sai), nên **không còn leo thang ADMIN bằng mật khẩu đã crack** ✅. Cơ chế `AuthService.needsRehash` nâng hash sang PBKDF2 ở lần login kế tiếp nhưng **không đổi mật khẩu**. |
 | Khoá `service_role` | **ĐÃ XỬ LÝ 2026-11-07.** Khoá cũ lộ trong git history (`bd065ac` xoá khỏi `wrangler.toml` nhưng blob còn) và trong `.env.local` của repo công khai `versalito/student-management`. Đã chuyển Worker sang khoá mới `sb_secret_*` (`wrangler secret put`), deploy lại, verify 6 endpoint + 3 vai trò đều 200, rồi **tắt legacy keys** (`PUT /v1/projects/{ref}/api-keys/legacy?enabled=false`). Khoá cũ giờ trả **401 "Legacy API keys are disabled"** trên REST ghi, Auth và Realtime. `.env.local` đã bị xoá khỏi HEAD của repo thứ hai. |
 
 Mục ❌ cần xử lý phía vận hành:
@@ -105,7 +108,7 @@ Hệ quả: dựng DB mới bằng `setup.sql` rồi deploy code hiện tại s�
 ## Kiểm tra
 
 ```bash
-npm test          # node:test trên LocalRepository → 209 test
+npm test          # node:test trên LocalRepository → 230 test
 npx tsc --noEmit  # typecheck
 npm run lint      # eslint, --max-warnings=347 (nợ hiện tại, không tăng)
 npm run build     # build Next.js
