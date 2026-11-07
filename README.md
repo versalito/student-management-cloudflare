@@ -101,7 +101,7 @@ Hệ quả: dựng DB mới bằng `setup.sql` rồi deploy code hiện tại s�
 ## Kiểm tra
 
 ```bash
-npm test          # node:test trên LocalRepository → 175 test
+npm test          # node:test trên LocalRepository → 204 test
 npx tsc --noEmit  # typecheck
 npm run lint      # eslint, --max-warnings=347 (nợ hiện tại, không tăng)
 npm run build     # build Next.js
@@ -114,6 +114,8 @@ npm run build     # build Next.js
 ```
 
 Script đăng nhập lấy cookie, warm-up rồi đo p50/p95 từng endpoint, exit 1 nếu p95 vượt ngưỡng ms truyền vào.
+
+Đo trên worker production 2026-11-07 sau bản vá đọc lại `isActive` (p50 / p95, giây): students 0.37/1.26, teachers 0.23/0.26, classes 0.23/0.26, schedule 0.34/0.58, bootstrap 0.35/0.59, audit 0.31/0.38. Chi phí biên của truy vấn `users` bổ sung ≈ **+9 ms** (xen kẽ 30 vòng: `/api/auth/me` không query DB p50 134 ms vs `/api/shifts` 2 query p50 143 ms).
 
 CI (`.github/workflows/ci.yml`) chạy 2 job: `verify` (tsc → test → lint → build) và `perf` (build → start → perf-probe với ngưỡng 800 ms).
 
