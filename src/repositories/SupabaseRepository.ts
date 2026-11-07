@@ -165,7 +165,7 @@ function mapClassFromDb(row: any): ClassEntity {
 
   return {
     id: row.id,
-    code: row.code || undefined,
+    // Cột classes.code đã bị xoá khỏi DB (update_2026-10-07) nên không đọc/ghi nữa.
     name: row.name,
     subject: row.subject,
     teacherId: row.teacher_id,
@@ -186,7 +186,6 @@ function mapClassFromDb(row: any): ClassEntity {
 function mapClassToDb(cls: ClassEntity): any {
   return {
     id: cls.id,
-    code: cls.code || null,
     name: cls.name,
     subject: cls.subject,
     teacher_id: cls.teacherId,
