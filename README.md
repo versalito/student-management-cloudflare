@@ -70,6 +70,25 @@ Thứ tự bắt buộc cho một database mới: `setup.sql` → `rls_lockdown.
 
 Tất cả script đều idempotent: chạy lại không mất dữ liệu.
 
+### Lệch giữa `setup.sql` và database production (kiểm tra 2026-11-07)
+
+`setup.sql` **không** phải bản mô tả đầy đủ của DB đang chạy: nó chỉ dựng các bảng đầu tiên, còn 4 bảng và nhiều cột do các script `update_*.sql` thêm sau đó không được gộp ngược vào. Đối chiếu `information_schema` thật với `setup.sql`:
+
+| Thiếu trong `setup.sql` | Nguồn thật |
+|---|---|
+| Bảng `class_sections`, `class_section_students`, `app_settings` | `update_2026-10-07.sql` |
+| Bảng `student_slot_swaps` | `update_2026-10-09-student-schedule-days.sql` |
+| Cột `schedule_slots.section_id`, `tuition_invoices.package_name/package_price/override_*`, `classes.code` (đã bị bỏ) | `update_2026-10-07.sql` |
+| Cột `attendance_records.checkin_time/is_makeup/created_at`, `notifications.updated_at`, `teacher_payroll_periods.total_salary/deductions`, `teachers.rate_per_session` | các `update_*.sql` khác |
+
+Hệ quả: dựng DB mới bằng `setup.sql` rồi deploy code hiện tại sẽ lỗi ngay ở `/api/classes`, `/api/schedule`, `/api/finance`, `/api/student/*`. Phải chạy **đủ** các `update_*.sql` theo ngày.
+
+### Production còn thiếu (cần chạy trong SQL Editor)
+
+- **Bảng `student_session_bookings`** — migration đã có sẵn: `supabase/update_2026-11-06-student-session-bookings.sql`. Thiếu nó thì `/api/schedule?studentId=…`, `/api/attendance`, `/api/attendance/current-session` trả 500 (`Could not find the table`).
+- **Hàm `max_schedule_slot_number()`** — code **đã bỏ phụ thuộc** (dùng truy vấn REST, xem `getMaxScheduleSlotNumber`), nên không còn là điều kiện deploy. Hàm vẫn giữ trong `setup.sql` cho DB mới.
+- Cột `classes.code` đã bị xoá khỏi DB từ `update_2026-10-07.sql`; code **không** còn đọc/ghi cột này.
+
 ## Kiểm tra
 
 ```bash

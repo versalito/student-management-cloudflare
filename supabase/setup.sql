@@ -531,6 +531,9 @@ create trigger trg_sync_student_to_user
     for each row execute function public.sync_profile_to_user();
 
 -- Hàm sinh mã ca học: max số trong 'SCHxxxx' mà không phải đọc cả bảng.
+-- LƯU Ý: application KHÔNG còn gọi hàm này (xem SupabaseRepository.getMaxScheduleSlotNumber
+-- — dùng truy vấn REST vì DB production chưa có hàm, gây 500 khi tạo lịch).
+-- Giữ ở đây cho DB mới và cho các script vận hành chạy tay.
 create or replace function public.max_schedule_slot_number()
 returns integer
 language sql
