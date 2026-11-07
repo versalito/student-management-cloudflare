@@ -190,6 +190,7 @@ Nợ mở, cần xử lý phía vận hành:
 
 | Việc | Chi tiết |
 |---|---|
+| **Migration buổi lẻ chưa chạy** | DB production **không có bảng `student_session_bookings`** (PostgREST `PGRST205`), nên `POST /api/student/bookings` trả **500** kèm hướng dẫn chạy `supabase/update_2026-11-06-student-session-bookings.sql`. Đã kiểm chứng bằng phiên học sinh `26007` + slot `SCH0913`. Các migration khác đều đã áp dụng (đã đối chiếu 10 object). Không có `psql`/Supabase CLI/DB password trên máy nên phải chạy trong SQL Editor. `GET` trả 200 rỗng nên UI không sập, chỉ hỏng luồng đăng ký. |
 | Đổi mật khẩu yếu | Đã crack và **đăng nhập thật được** trên production: `nguyễn văn tài` (ADMIN) = `password123`, `gv_nguyen-thi-huong` (TEACHER) và `26007` (STUDENT) = `123456`; hai tài khoản còn hash SHA-256 cũ là `đàm mỹ thuyết` (`password123`) và `ST_DROPOUT_TEST`. Lưu ý: `needsRehash` chỉ nâng **định dạng hash** sang PBKDF2 ở lần login kế tiếp, **không đổi mật khẩu** — `nguyễn văn tài`/`password123` sau khi đã rehash vẫn đăng nhập được 200 kèm quyền ADMIN. |
 | Nợ lint | `npm run lint` dùng `--max-warnings=347`; hiện còn **339** cảnh báo (đã sửa bớt trong `access-scoping.test.ts` và `api/classes/sections`). Không được nâng trần để CI xanh. |
 
