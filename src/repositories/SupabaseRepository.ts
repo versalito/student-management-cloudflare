@@ -315,6 +315,17 @@ function mapAttendanceRecordFromDb(row: any): AttendanceRecord {
   };
 }
 
+/**
+ * Bọc một giá trị thành literal an toàn cho cú pháp `or(...)`/`eq.` của PostgREST.
+ *
+ * Không quote thì `,` và `)` trong giá trị bị hiểu là cú pháp, tức là người gọi
+ * `?id=x,role.eq.ADMIN` chèn thêm được điều kiện lọc. Bọc nháy kép biến chúng
+ * thành dữ liệu; nháy kép bên trong được escape để không đóng chuỗi sớm.
+ */
+export function quotePgValue(value: string): string {
+  return `"${value.replace(/"/g, '\\"')}"`;
+}
+
 function mapAttendanceRecordToDb(rec: AttendanceRecord): any {
   return {
     id: rec.id,
@@ -610,17 +621,23 @@ export class SupabaseRepository implements IRepository {
 
     try {
       const clean = id.trim();
+      // Tra cứu chính xác nên dùng `eq`, không dùng `ilike`: id người dùng gõ vào
+      // `?id=` từng chứa được `%` (khớp mọi tài khoản) và `,`/`)` (chèn thêm điều
+      // kiện vào `or(...)`, hoặc làm PostgREST trả 400). Giá trị được bọc nháy kép
+      // theo cú pháp PostgREST nên `,` và `)` bên trong là dữ liệu, không phải cú pháp.
+      const quoted = quotePgValue(clean);
       const { data, error } = await client
         .from('users')
         .select('*')
-        .or(`id.ilike.${clean},username.ilike.${clean}`)
-        .maybeSingle();
+        .or(`id.eq.${quoted},username.eq.${quoted}`)
+        .limit(1);
 
       if (error) {
         throw new Error(error.message);
       }
 
-      return data ? mapUserFromDb(data) : null;
+      const row = (data || [])[0];
+      return row ? mapUserFromDb(row) : null;
     } catch (err) {
       throw err;
     }
@@ -632,17 +649,20 @@ export class SupabaseRepository implements IRepository {
 
     try {
       const clean = username.trim();
+      // Cùng lý do như `getUserById`: tra cứu chính xác, giá trị được quote.
+      const quoted = quotePgValue(clean);
       const { data, error } = await client
         .from('users')
         .select('*')
-        .or(`username.ilike.${clean},id.ilike.${clean}`)
-        .maybeSingle();
+        .or(`username.eq.${quoted},id.eq.${quoted}`)
+        .limit(1);
 
       if (error) {
         throw new Error(error.message);
       }
 
-      return data ? mapUserFromDb(data) : null;
+      const row = (data || [])[0];
+      return row ? mapUserFromDb(row) : null;
     } catch (err) {
       throw err;
     }
