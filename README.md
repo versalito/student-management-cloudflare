@@ -43,7 +43,7 @@ Hai secret cuối không đặt trong `wrangler.toml`; production nạp bằng `
 - **RLS**: `supabase/rls_lockdown.sql` chặn `anon`/`authenticated` trên mọi bảng, backend dùng `service_role`. Kiểm chứng: `node scripts/verify-rls.mjs`.
 - **Cache-Control**: HTML và API `private, no-store`; `/_next/static/*` immutable 1 năm (xem `public/_headers`).
 
-## Trạng thái production (kiểm tra 2026-11-06)
+## Trạng thái production (kiểm tra 2026-11-07)
 
 | Hạng mục | Kết quả |
 |---|---|
@@ -52,13 +52,21 @@ Hai secret cuối không đặt trong `wrangler.toml`; production nạp bằng `
 | API thiếu phiên | 10/10 endpoint nóng trả 401 ✅ |
 | RBAC | phiên học sinh gọi `GET/POST /api/users`, `PUT /api/teachers`, `POST /api/admin/reconcile` → 403 ✅ |
 | Đọc chéo hồ sơ | học sinh đọc hồ sơ mình 200, hồ sơ khác 403 ✅ |
+| Đổi mật khẩu người khác | chỉ tự đổi được của mình; nhắm `ADMIN001` hay học viên khác → 403 ✅ |
+| Lộ SĐT/lương giáo viên | phiên học sinh nhận `{id,name,specialty,bio}`, không có `phone`/`hourlyRate`/`ratePerSession` ✅ |
+| Lịch/ca của người khác | `?studentId=<khác>`, `?all=true` → 403 ✅ |
 | Rate limit login | sai mật khẩu lần 5 trở đi → 429 ✅ |
 | Cache asset | `/_next/static/*` → `public, max-age=31536000, immutable` ✅ |
 | Cache HTML | `private, no-store` ✅ |
 | RLS | `anon` key đọc `users/students/tuition_invoices/audit_logs` → 401 `permission denied` ✅ |
 | Mật khẩu tài khoản | **13/17 user còn hash SHA-256 cũ (không salt)**; 12 tài khoản dùng mật khẩu đoán được, gồm 1 ADMIN `password123` ❌ |
+| Khoá `service_role` | **Lộ trong git history** (`bd065ac` xoá khỏi `wrangler.toml` nhưng blob cũ vẫn còn). Khoá vẫn hiệu lực tới 2036, `anon` bị chặn nhưng khoá này đọc/ghi được mọi bảng ❌ |
 
-Mục ❌ cần xử lý phía vận hành: đổi mật khẩu các tài khoản còn dùng `123456` / `password123`. Hash cũ chỉ được nâng cấp tự động sang PBKDF2 ở lần đăng nhập kế tiếp (`AuthService.needsRehash`), nhưng mật khẩu yếu thì phải đổi bằng tay.
+Mục ❌ cần xử lý phía vận hành:
+
+1. **Rotate `SUPABASE_SERVICE_ROLE_KEY` ngay** — chỉ làm được trong Supabase Dashboard → Project Settings → API → *Rotate JWT secret*, sau đó `wrangler secret put SUPABASE_SERVICE_ROLE_KEY`. Lộ key này = toàn quyền database, mọi thứ khoá ở tầng API đều vô nghĩa với người có key. Cân nhắc `git filter-repo` để xoá blob, nhưng repo đã public nên phải coi khoá là đã lộ vĩnh viễn.
+2. Đổi mật khẩu các tài khoản còn dùng `123456` / `password123` (gồm `admin`). Hash cũ chỉ được nâng cấp tự động sang PBKDF2 ở lần đăng nhập kế tiếp (`AuthService.needsRehash`), nhưng mật khẩu yếu thì phải đổi bằng tay.
+3. Xoá tài khoản test còn sót trên production: `st_pwd_01` / `ST_PWD_TEST_01` (đăng nhập được bằng `matkhau_cu`), `USR_DROPOUT_TEST`.
 
 ## Cơ sở dữ liệu
 
