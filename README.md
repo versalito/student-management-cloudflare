@@ -41,6 +41,9 @@ Hai secret cuối không đặt trong `wrangler.toml`; production nạp bằng `
 - **Rate limit login**: đếm theo username+IP trong KV `RATE_LIMIT_KV` (fallback bộ nhớ isolate nếu thiếu binding).
 - **Thu học phí**: không có webhook tự động và không có nút báo chuyển khoản. Học sinh chỉ xem mã VietQR + nội dung chuyển khoản, tự huỷ được hoá đơn chưa thanh toán của mình (`DELETE /api/finance?invoiceId=`). Quản trị đối soát sao kê rồi xác nhận qua `UPDATE_STATUS` (cho phép thu một phần bằng `paidAmount`). Chỉ ADMIN được ghi sổ.
 - **RLS**: `supabase/rls_lockdown.sql` chặn `anon`/`authenticated` trên mọi bảng, backend dùng `service_role`. Kiểm chứng: `node scripts/verify-rls.mjs`.
+- **Khoá API**: từ 2026-11-07 project chỉ dùng khoá kiểu mới — server giữ `sb_secret_*` (secret của Worker), client-side nhận `sb_publishable_*` (công khai, vẫn bị RLS chặn). Legacy JWT `anon`/`service_role` **đã tắt**, nên mọi JWT từng lộ đều vô hiệu.
+  - Kiểm tra trạng thái: `node scripts/retire-legacy-keys.mjs --dry-run`
+  - Khẩn cấp (app chưa kịp đổi khoá): `--re-enable`
 - **Cache-Control**: HTML và API `private, no-store`; `/_next/static/*` immutable 1 năm (xem `public/_headers`).
 
 ## Trạng thái production (kiểm tra 2026-11-07)
@@ -93,9 +96,9 @@ Tất cả script đều idempotent: chạy lại không mất dữ liệu.
 
 Hệ quả: dựng DB mới bằng `setup.sql` rồi deploy code hiện tại sẽ lỗi ngay ở `/api/classes`, `/api/schedule`, `/api/finance`, `/api/student/*`. Phải chạy **đủ** các `update_*.sql` theo ngày.
 
-### Production còn thiếu (cần chạy trong SQL Editor)
+### Trạng thái schema production (kiểm tra 2026-11-07)
 
-- **Bảng `student_session_bookings`** — migration đã có sẵn: `supabase/update_2026-11-06-student-session-bookings.sql`. Thiếu nó thì **chỉ tính năng buổi lẻ tắt**: `getSessionBookings` coi `PGRST205` là "chưa có booking nào" nên `/api/schedule?studentId=…`, `/api/attendance`, `/api/student/slots`, `/api/student/bookings` vẫn 200; đặt/huỷ buổi trả lỗi có chỉ dẫn chạy migration. Trước bản vá 2026-11-07 các route này trả 500 và giao diện học viên hiện nguyên văn lỗi PostgREST.
+- **Bảng `student_session_bookings`** — **đã chạy trên production 2026-11-07** qua Management API (`POST /v1/projects/{ref}/database/query`). Schema đã đối chiếu: 6 cột, RLS bật + force, 5 index. Nguồn: `supabase/update_2026-11-06-student-session-bookings.sql` (= `setup.sql`). Kiểm chứng end-to-end: đăng nhập `26007` → `POST /api/student/bookings` trả **201**, `DELETE` trả **200** với status `Đã hủy`, `node scripts/verify-rls.mjs` → **19 bảng, 0 rò rỉ, 0 lỗi**. Nếu bảng thiếu trên môi trường khác, chỉ tính năng buổi lẻ tắt: `getSessionBookings` coi `PGRST205` là "chưa có booking nào" nên `/api/schedule?studentId=…`, `/api/attendance`, `/api/student/slots`, `/api/student/bookings` vẫn 200; đặt/huỷ buổi trả lỗi có chỉ dẫn chạy migration.
 - **Hàm `max_schedule_slot_number()`** — code **đã bỏ phụ thuộc** (dùng truy vấn REST, xem `getMaxScheduleSlotNumber`), nên không còn là điều kiện deploy. Hàm vẫn giữ trong `setup.sql` cho DB mới.
 - Cột `classes.code` đã bị xoá khỏi DB từ `update_2026-10-07.sql`; code **không** còn đọc/ghi cột này.
 

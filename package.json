@@ -14,7 +14,7 @@
     "deploy": "opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion && wrangler deploy",
     "db:audit-slots": "node --import tsx scripts/audit-slot-weekdays.ts",
     "db:reconcile-slots": "node scripts/reconcile-slots.mjs",
-    "keys:rotate": "node scripts/rotate-service-key.mjs"
+    "keys:retire": "node scripts/retire-legacy-keys.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",

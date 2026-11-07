@@ -1,9 +1,11 @@
 -- =============================================================================
 -- RLS LOCKDOWN — chặn anon/authenticated đọc dữ liệu qua PostgREST
 --
--- Bối cảnh: NEXT_PUBLIC_SUPABASE_ANON_KEY nằm trong wrangler.toml (public) và
--- mọi bảng public đang trả dữ liệu cho key đó, gồm users (password_hash),
--- students/teachers (PII), tuition_invoices, audit_logs.
+-- Bối cảnh: khoá công khai của project nằm trong wrangler.toml (public) và
+-- Supabase mặc định cho role anon đọc mọi bảng public, gồm users
+-- (password_hash), students/teachers (PII), tuition_invoices, audit_logs.
+-- (Từ 2026-11-07 legacy anon/service_role JWT đã bị tắt; khoá công khai giờ là
+-- sb_publishable_* — hành vi với RLS không đổi: vẫn là role anon.)
 --
 -- Backend của app chỉ dùng service_role (src/lib/supabase.ts), là role có
 -- BYPASSRLS, nên sau khi chạy script này app vẫn hoạt động bình thường.
