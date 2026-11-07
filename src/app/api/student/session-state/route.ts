@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 import { buildStudentSessionState } from '@/services/StudentSessionService';
+import { teacherTeachesStudent } from '@/lib/auth/studentScope';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +22,11 @@ export async function GET(request: Request) {
   if (!studentId) {
     return NextResponse.json({ error: 'Thiếu tham số studentId' }, { status: 400 });
   }
-  if (!isSelfOrStaff(auth.user, studentId)) {
+  if (auth.user.role === 'TEACHER') {
+    if (!(await teacherTeachesStudent(auth.user.id, studentId))) {
+      return NextResponse.json({ error: 'Học viên này không thuộc lớp bạn phụ trách' }, { status: 403 });
+    }
+  } else if (!isSelfOrStaff(auth.user, studentId)) {
     return NextResponse.json({ error: 'Không có quyền xem buổi học của học viên khác' }, { status: 403 });
   }
 

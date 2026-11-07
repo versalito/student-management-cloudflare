@@ -278,9 +278,16 @@ export function withAuth<Args extends unknown[]>(
   };
 }
 
-/** Chặn truy cập dữ liệu của người khác: học viên chỉ thấy chính mình. */
+/**
+ * Chặn truy cập dữ liệu của người khác: học viên **và giáo viên** chỉ thấy chính mình.
+ *
+ * Trước đây hàm trả `true` cho mọi tài khoản TEACHER, nên bất kỳ chỗ nào dùng nó
+ * làm chốt chặn (sửa hồ sơ giáo viên, sổ chấm công, đổi ca…) đều mở cho toàn bộ
+ * giáo viên. Phạm vi rộng của giáo viên (học viên/lớp mình dạy) phải kiểm riêng
+ * bằng `teacherTeachesStudent` / `teacherTeachesClass`, không dựa vào hàm này.
+ */
 export function isSelfOrStaff(user: SessionUser, targetId: string | null | undefined): boolean {
-  if (user.role === 'ADMIN' || user.role === 'TEACHER') return true;
+  if (user.role === 'ADMIN') return true;
   if (!targetId) return false;
   return targetId.toUpperCase() === user.id.toUpperCase();
 }

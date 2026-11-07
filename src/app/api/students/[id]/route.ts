@@ -13,14 +13,16 @@ export async function GET(
   const { id } = await params;
   const auth = await authenticate(request, ['ADMIN', 'TEACHER', 'STUDENT']);
   if (auth.response) return auth.response;
-  if (!isSelfOrStaff(auth.user, id)) {
+  // Giáo viên đọc được học viên thuộc lớp/ca mình phụ trách; học viên chỉ đọc chính mình.
+  if (auth.user.role === 'TEACHER') {
+    if (!(await teacherTeachesStudent(auth.user.id, id))) {
+      return NextResponse.json(
+        { error: 'Học viên này không thuộc lớp bạn phụ trách' },
+        { status: 403 }
+      );
+    }
+  } else if (!isSelfOrStaff(auth.user, id)) {
     return NextResponse.json({ error: 'Không có quyền xem hồ sơ học viên khác' }, { status: 403 });
-  }
-  if (auth.user.role === 'TEACHER' && !(await teacherTeachesStudent(auth.user.id, id))) {
-    return NextResponse.json(
-      { error: 'Học viên này không thuộc lớp bạn phụ trách' },
-      { status: 403 }
-    );
   }
 
   try {
@@ -49,15 +51,16 @@ export async function PATCH(
   const { id } = await params;
   const auth = await authenticate(request, ['ADMIN', 'TEACHER', 'STUDENT']);
   if (auth.response) return auth.response;
-  if (!isSelfOrStaff(auth.user, id)) {
+  // Giáo viên sửa được học viên thuộc lớp/ca mình phụ trách; học viên chỉ sửa chính mình.
+  if (auth.user.role === 'TEACHER') {
+    if (!(await teacherTeachesStudent(auth.user.id, id))) {
+      return NextResponse.json(
+        { error: 'Học viên này không thuộc lớp bạn phụ trách' },
+        { status: 403 }
+      );
+    }
+  } else if (!isSelfOrStaff(auth.user, id)) {
     return NextResponse.json({ error: 'Không có quyền sửa hồ sơ học viên khác' }, { status: 403 });
-  }
-  // `isSelfOrStaff` cho TEACHER luôn true — chặn thêm theo lớp/ca thực tế.
-  if (auth.user.role === 'TEACHER' && !(await teacherTeachesStudent(auth.user.id, id))) {
-    return NextResponse.json(
-      { error: 'Học viên này không thuộc lớp bạn phụ trách' },
-      { status: 403 }
-    );
   }
 
   try {

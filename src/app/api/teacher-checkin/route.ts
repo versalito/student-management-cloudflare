@@ -33,14 +33,16 @@ export async function GET(request: Request) {
 
   try {
     const { searchParams } = new URL(request.url);
-    const teacherId = searchParams.get('teacherId');
+    const requestedTeacherId = searchParams.get('teacherId');
     const month = searchParams.get('month');
     const date = searchParams.get('date');
 
-    // Giáo viên chỉ xem chấm công của chính mình.
-    if (auth.user.role === 'TEACHER' && !isSelfOrStaff(auth.user, teacherId)) {
+    // Giáo viên chỉ xem chấm công của chính mình. Gọi trần (không tham số) trước
+    // đây đọc toàn bộ ca của trung tâm kèm giờ vào/ra từng giáo viên.
+    if (auth.user.role === 'TEACHER' && requestedTeacherId && !isSelfOrStaff(auth.user, requestedTeacherId)) {
       return NextResponse.json({ success: false, error: 'Không có quyền xem chấm công của giáo viên khác' }, { status: 403 });
     }
+    const teacherId = auth.user.role === 'TEACHER' ? auth.user.id : requestedTeacherId;
 
     let slots: ScheduleSlot[] = teacherId
       ? await repo.getScheduleSlotsByTeacherId(teacherId)

@@ -15,6 +15,9 @@ import { POST as postSection, PUT as putSection } from '../src/app/api/classes/s
 import { PUT as putClass } from '../src/app/api/classes/route';
 import { GET as getCurrentSession } from '../src/app/api/attendance/current-session/route';
 import { GET as getRequests } from '../src/app/api/requests/route';
+import { PUT as putTeacher } from '../src/app/api/teachers/route';
+import { GET as getTeacherCheckin } from '../src/app/api/teacher-checkin/route';
+import { GET as getSessionState } from '../src/app/api/student/session-state/route';
 import { getTodayDateStr } from '../src/utils/date';
 import { authedAsStudent, authed, teacherUser } from './helpers/auth';
 
@@ -698,5 +701,65 @@ test('Access scoping: giáo viên không đọc lương/SĐT của đồng nghi�
     const data = await res.json() as { teacher: { hourlyRate?: number; phone?: string } };
     assert.equal(data.teacher.hourlyRate, other.hourlyRate);
     assert.equal(data.teacher.phone, other.phone);
+  });
+});
+
+test('Access scoping: giáo viên không sửa hồ sơ/không đọc chấm công của đồng nghiệp', async (t) => {
+  const repo = LocalRepository.getInstance();
+  const others = (await repo.getAllTeachers()).filter((x) => x.id !== 'GV001');
+  const victim = others[0];
+
+  await t.test('PUT /api/teachers hồ sơ đồng nghiệp bị chặn', async () => {
+    const res = await putTeacher(
+      authed('http://localhost/api/teachers', {
+        method: 'PUT',
+        body: JSON.stringify({ id: victim.id, name: victim.name, specialty: victim.specialty, bio: 'x' }),
+      }, teacherUser)
+    );
+    assert.equal(res.status, 403, 'giáo viên không được sửa hồ sơ người khác');
+    const after = await repo.getTeacherById(victim.id);
+    assert.equal(after?.bio, victim.bio, 'hồ sơ nạn nhân phải nguyên vẹn');
+  });
+
+  await t.test('PUT /api/teachers hồ sơ của chính mình vẫn được', async () => {
+    const me = await repo.getTeacherById('GV001');
+    assert.ok(me);
+    const res = await putTeacher(
+      authed('http://localhost/api/teachers', {
+        method: 'PUT',
+        body: JSON.stringify({ id: 'GV001', name: me.name, specialty: me.specialty, bio: me.bio }),
+      }, teacherUser)
+    );
+    assert.equal(res.status, 200);
+  });
+
+  await t.test('GET /api/teacher-checkin?teacherId=<đồng nghiệp> bị chặn', async () => {
+    const res = await getTeacherCheckin(
+      authed(`http://localhost/api/teacher-checkin?teacherId=${victim.id}`, {}, teacherUser)
+    );
+    assert.equal(res.status, 403);
+  });
+
+  await t.test('GET /api/teacher-checkin trần chỉ trả ca của chính mình', async () => {
+    const res = await getTeacherCheckin(
+      authed('http://localhost/api/teacher-checkin', {}, teacherUser)
+    );
+    assert.equal(res.status, 200);
+    const data = await res.json() as { slots: { teacherId: string }[] };
+    assert.ok(data.slots.length > 0);
+    for (const slot of data.slots) assert.equal(slot.teacherId, 'GV001');
+  });
+
+  await t.test('GET /api/student/session-state học viên lớp khác bị chặn', async () => {
+    const foreignClass = (await repo.getAllClasses()).find((cls) => cls.teacherId !== 'GV001');
+    const owned = new Set(
+      (await repo.getClassesByTeacherId('GV001')).flatMap((cls) => cls.studentIds || [])
+    );
+    const foreignStudentId = (foreignClass?.studentIds || []).find((id) => !owned.has(id));
+    assert.ok(foreignStudentId, 'seed phải có học viên ngoài lớp GV001');
+    const res = await getSessionState(
+      authed(`http://localhost/api/student/session-state?studentId=${foreignStudentId}`, {}, teacherUser)
+    );
+    assert.equal(res.status, 403);
   });
 });
