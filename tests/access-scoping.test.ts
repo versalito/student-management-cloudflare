@@ -14,6 +14,7 @@ import { GET as getStudentDetail } from '../src/app/api/students/[id]/route';
 import { POST as postSection, PUT as putSection } from '../src/app/api/classes/sections/route';
 import { PUT as putClass } from '../src/app/api/classes/route';
 import { GET as getCurrentSession } from '../src/app/api/attendance/current-session/route';
+import { GET as getRequests } from '../src/app/api/requests/route';
 import { getTodayDateStr } from '../src/utils/date';
 import { authedAsStudent, authed, teacherUser } from './helpers/auth';
 
@@ -627,5 +628,36 @@ test('Access scoping: /api/attendance/current-session không mở ca của giáo
       );
     }
     assert.ok(foreignTodaySlot === undefined || !data.hasActiveSession || data.slot!.classId !== foreignTodaySlot.classId);
+  });
+});
+
+test('Access scoping: danh sách đơn từ của giáo viên chỉ gồm lớp mình phụ trách', async (t) => {
+  const repo = LocalRepository.getInstance();
+  const teacherId = 'GV001';
+  const ownClasses = await repo.getClassesByTeacherId(teacherId);
+  const ownSections = await repo.getSectionsByTeacherId(teacherId);
+  const allowed = new Set<string>([
+    ...ownClasses.map((c) => c.id),
+    ...ownSections.map((sec) => sec.classId),
+  ]);
+  const all = await repo.getAllRequests();
+  assert.ok(all.length > 0, 'seed phải có đơn từ');
+  const foreign = all.filter((r) => !allowed.has(r.classId));
+  assert.ok(foreign.length > 0, 'seed phải có đơn ngoài phạm vi giáo viên');
+
+  await t.test('không truyền teacherId không trả đơn lớp khác', async () => {
+    const res = await getRequests(authed('http://localhost/api/requests', {}, teacherUser));
+    assert.equal(res.status, 200);
+    const data = await res.json() as { requests: { classId: string }[] };
+    assert.ok(data.requests.length > 0, 'giáo viên phải thấy đơn của lớp mình');
+    for (const r of data.requests) {
+      assert.ok(allowed.has(r.classId), `lộ đơn của lớp ${r.classId}`);
+    }
+  });
+
+  await t.test('admin vẫn thấy toàn bộ đơn', async () => {
+    const res = await getRequests(authed('http://localhost/api/requests'));
+    const data = await res.json() as { requests: unknown[] };
+    assert.equal(data.requests.length, all.length);
   });
 });

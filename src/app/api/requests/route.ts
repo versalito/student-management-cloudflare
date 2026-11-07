@@ -19,6 +19,19 @@ export async function GET(request: Request) {
   }
 
   let requests = await repo.getAllRequests();
+
+  // Giáo viên không truyền `teacherId` trước đây nhận TOÀN BỘ đơn của trung tâm
+  // (gồm đơn của lớp mình không phụ trách), chỉ khi tự truyền `teacherId` mới
+  // được lọc. Ép phạm vi theo chính mình giống các route khác.
+  if (auth.user.role === 'TEACHER') {
+    const ownClasses = await repo.getClassesByTeacherId(auth.user.id);
+    const ownSections = await repo.getSectionsByTeacherId(auth.user.id);
+    const classIds = new Set<string>([
+      ...ownClasses.map((c) => c.id),
+      ...ownSections.map((sec) => sec.classId),
+    ]);
+    requests = requests.filter((r) => classIds.has(r.classId));
+  }
   // Gộp sẵn tên học sinh vào response để portal giáo viên không phải gọi thêm /api/students?limit=all.
   const allStudents = await repo.getAllStudents();
   const studentNameMap = new Map(allStudents.map(s => [s.id, s.name]));

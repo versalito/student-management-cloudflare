@@ -63,6 +63,7 @@ Hai secret cuối không đặt trong `wrangler.toml`; production nạp bằng `
 | Bootstrap BFF | `?scope=students` chỉ ADMIN (TEACHER trước đó đọc SĐT cả trung tâm); `scope=classes` lớp ngoài phạm vi → `studentCount` thay `studentIds`; `scope=slots` chỉ ca lớp mình dạy (GV007: `['CLS08']`) |
 | Sĩ số lớp/ca của giáo viên | `/api/classes`, `/api/classes/sections` (mọi nhánh gồm `?all=true`) trả `studentCount` cho lớp/ca ngoài phạm vi, chỉ ca mình dạy mới có `studentIds`; UI đọc `studentCount ?? studentIds.length` |
 | Thống kê chuyên cần | `GET /api/attendance/analytics` phiên TEACHER chỉ trả lớp mình dạy (GV007: 1 học viên thay vì 7); `?classId=<lớp ngoài>` → 403 |
+| Đơn từ theo giáo viên | `GET /api/requests` phiên TEACHER từng trả **mọi** đơn của trung tâm khi không truyền `teacherId`; giờ luôn lọc theo lớp/ca mình phụ trách. Kiểm chứng production: GV007 chỉ thấy `REQ002` (CLS08), không thấy `REQ001` (CLS09); duyệt đơn lớp khác → 403 ✅ |
 | Sổ trực tiếp (current-session) | `GET /api/attendance/current-session` phiên TEACHER từng trả ca đang diễn ra của **toàn trung tâm** kèm tên + SĐT học viên; giờ ép về lớp mình dạy (`hasActiveSession:false` nếu ca là của GV khác), `?teacherId=<khác>` → 403 ✅ |
 | Sổ điểm danh theo ca | `GET /api/attendance?slotId=` ca mình dạy → 200 kèm roster; ca lớp khác → 403. Đây là hồi quy do bản vá trước gây ra (nhánh TEACHER trả sớm khi thiếu `classId` làm sổ luôn rỗng) — đã sửa và có test |
 | Leo thang ca dạy | TEACHER `PUT /api/classes/sections` ca người khác → 403 ("Ca này đã được phân công cho giáo viên khác"), gán ca sang GV khác → 403, `POST` tạo ca → 403, `PUT /api/classes` đổi giáo viên → 403; nhận ca chưa phân công vẫn 200 |
@@ -113,7 +114,7 @@ Hệ quả: dựng DB mới bằng `setup.sql` rồi deploy code hiện tại s�
 ## Kiểm tra
 
 ```bash
-npm test          # node:test trên LocalRepository → 242 test
+npm test          # node:test trên LocalRepository → 245 test
 npx tsc --noEmit  # typecheck
 npm run lint      # eslint, --max-warnings=347 (nợ hiện tại, không tăng)
 npm run build     # build Next.js
