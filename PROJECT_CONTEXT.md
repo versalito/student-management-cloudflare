@@ -190,8 +190,8 @@ Nợ mở, cần xử lý phía vận hành:
 
 | Việc | Chi tiết |
 |---|---|
-| Đổi mật khẩu yếu | Đo lại trên DB production 2026-11-07: **6/18** user còn hash SHA-256 không salt (đã giảm từ 13/17 nhờ cơ chế tự nâng cấp PBKDF2 khi login). Trong 6 hash còn lại, **5 bị crack bằng danh sách mật khẩu phổ biến**: `nguyễn văn tài` (ADMIN) = `password123`, `đàm mỹ thuyết` (TEACHER) = `password123`, `gv_nguyen-thi-huong` (TEACHER) + `26007`, `26008` (STUDENT) = `123456`. Đăng nhập thật bằng `nguyễn văn tài`/`password123` trên worker production trả **200 kèm quyền ADMIN** (đọc được `/api/finance` và `/api/users`) — đã kiểm chứng, không phải suy đoán. Hash tự nâng cấp sang PBKDF2 ở lần login kế tiếp, mật khẩu thì không. |
-| Nợ lint | `npm run lint` đang `--max-warnings=347` (đã dùng đúng trần). Muốn giảm phải sửa cảnh báo, không được nâng trần để CI xanh. |
+| Đổi mật khẩu yếu | Đã crack và **đăng nhập thật được** trên production: `nguyễn văn tài` (ADMIN) = `password123`, `gv_nguyen-thi-huong` (TEACHER) và `26007` (STUDENT) = `123456`; hai tài khoản còn hash SHA-256 cũ là `đàm mỹ thuyết` (`password123`) và `ST_DROPOUT_TEST`. Lưu ý: `needsRehash` chỉ nâng **định dạng hash** sang PBKDF2 ở lần login kế tiếp, **không đổi mật khẩu** — `nguyễn văn tài`/`password123` sau khi đã rehash vẫn đăng nhập được 200 kèm quyền ADMIN. |
+| Nợ lint | `npm run lint` dùng `--max-warnings=347`; hiện còn **339** cảnh báo (đã sửa bớt trong `access-scoping.test.ts` và `api/classes/sections`). Không được nâng trần để CI xanh. |
 
 ---
 

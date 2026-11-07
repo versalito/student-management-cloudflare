@@ -56,16 +56,17 @@ Hai secret cuối không đặt trong `wrangler.toml`; production nạp bằng `
 | Lộ SĐT/lương giáo viên | phiên học sinh nhận `{id,name,specialty,bio}`, không có `phone`/`hourlyRate`/`ratePerSession` ✅ |
 | Lịch/ca của người khác | `?studentId=<khác>`, `?all=true` → 403 ✅ |
 | Rate limit login | sai mật khẩu lần 5 trở đi → 429 ✅ |
+| Thu hồi phiên khi khoá tài khoản | khoá `26008` rồi dùng lại cookie cũ → `/api/students`, `/api/schedule` đều **401** (trước bản vá 2026-11-07 vẫn 200 trong suốt 8 h còn hạn của token) ✅ |
 | Cache asset | `/_next/static/*` → `public, max-age=31536000, immutable` ✅ |
 | Cache HTML | `private, no-store` ✅ |
 | RLS | `anon` key đọc `users/students/tuition_invoices/audit_logs` → 401 `permission denied` ✅ |
-| Mật khẩu tài khoản | Đo lại 2026-11-07: **6/18** user còn hash SHA-256 cũ (không salt); crack được **5** bằng danh sách phổ biến, gồm ADMIN `nguyễn văn tài` = `password123`. Đăng nhập thật trên worker production → 200 kèm quyền ADMIN ❌ |
+| Mật khẩu tài khoản | Đã crack và **đăng nhập thật thành công** trên production: ADMIN `nguyễn văn tài` = `password123`, TEACHER `gv_nguyen-thi-huong` + STUDENT `26007` = `123456` (còn `đàm mỹ thuyết` = `password123`, học viên `26008` = `123456`). Cơ chế `AuthService.needsRehash` đã nâng hash các tài khoản này sang PBKDF2 ở lần login kế tiếp, nhưng **mật khẩu vẫn yếu** — đăng nhập `nguyễn văn tài`/`password123` vẫn trả 200 với quyền ADMIN ❌ |
 | Khoá `service_role` | **Lộ trong git history** (`bd065ac` xoá khỏi `wrangler.toml` nhưng blob cũ vẫn còn). Khoá vẫn hiệu lực tới 2036, `anon` bị chặn nhưng khoá này đọc/ghi được mọi bảng ❌ |
 
 Mục ❌ cần xử lý phía vận hành:
 
 1. **Rotate `SUPABASE_SERVICE_ROLE_KEY` ngay** — chỉ làm được trong Supabase Dashboard → Project Settings → API → *Rotate JWT secret*, sau đó `wrangler secret put SUPABASE_SERVICE_ROLE_KEY`. Lộ key này = toàn quyền database, mọi thứ khoá ở tầng API đều vô nghĩa với người có key. Cân nhắc `git filter-repo` để xoá blob, nhưng repo đã public nên phải coi khoá là đã lộ vĩnh viễn.
-2. Đổi mật khẩu các tài khoản còn hash SHA-256, ưu tiên ADMIN `nguyễn văn tài` (`password123`), TEACHER `đàm mỹ thuyết` (`password123`), `gv_nguyen-thi-huong` + `26007` + `26008` (`123456`). Các mật khẩu này đã bị crack và đăng nhập được thật; hash chỉ tự nâng cấp sang PBKDF2 ở lần login kế tiếp (`AuthService.needsRehash`), mật khẩu yếu thì phải đổi bằng tay.
+2. Đổi mật khẩu các tài khoản có mật khẩu đoán được — **hash đã tự nâng cấp PBKDF2 nhưng mật khẩu không đổi**, nên phải đổi bằng tay: ADMIN `nguyễn văn tài` (`password123`), TEACHER `đàm mỹ thuyết` (`password123`), `gv_nguyen-thi-huong` (`123456`), STUDENT `26007`, `26008` (`123456`). Ưu tiên tài khoản ADMIN vì mật khẩu của nó đã bị crack từ hash công khai.
 3. Xoá tài khoản test còn sót trên production: `st_pwd_01` / `ST_PWD_TEST_01` (đăng nhập được bằng `matkhau_cu`), `USR_DROPOUT_TEST`.
 
 ## Cơ sở dữ liệu
