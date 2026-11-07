@@ -184,7 +184,7 @@ Mọi route gọi `authenticate(request, roles)` trước khi chạm dữ liệu
 
 ## 7b. Trạng thái production & nợ kỹ thuật (2026-11-06)
 
-Đã kiểm chứng trên worker thật (không phải suy luận): chặn route theo role, 401 cho API thiếu phiên, 403 khi leo quyền, rate limit login 429 sau 5 lần sai, `/_next/static/*` immutable, HTML `no-store`, RLS chặn `anon` trên mọi bảng.
+Đã kiểm chứng trên worker thật (không phải suy luận): chặn route theo role, 401 cho API thiếu phiên, 403 khi leo quyền, rate limit login 429 sau 5 lần sai, `/_next/static/*` immutable, HTML `no-store`, RLS chặn `anon` trên mọi bảng, khoá tài khoản thu hồi ngay phiên đang mở (401).
 
 Nợ mở, cần xử lý phía vận hành:
 
