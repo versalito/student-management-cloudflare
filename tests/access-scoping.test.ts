@@ -15,12 +15,13 @@ import { POST as postSection, PUT as putSection } from '../src/app/api/classes/s
 import { PUT as putClass } from '../src/app/api/classes/route';
 import { GET as getCurrentSession } from '../src/app/api/attendance/current-session/route';
 import { GET as getRequests } from '../src/app/api/requests/route';
+import { GET as getNotifications, POST as postNotifications } from '../src/app/api/notifications/route';
 import { POST as postEnroll } from '../src/app/api/classes/enroll/route';
 import { PUT as putTeacher } from '../src/app/api/teachers/route';
 import { GET as getTeacherCheckin } from '../src/app/api/teacher-checkin/route';
 import { GET as getSessionState } from '../src/app/api/student/session-state/route';
 import { getTodayDateStr } from '../src/utils/date';
-import { authedAsStudent, authed, teacherUser } from './helpers/auth';
+import { authedAsStudent, authed, teacherUser, studentUser } from './helpers/auth';
 
 /**
  * Hồi quy cho lỗ hổng phân quyền đã khai thác được trên production:
@@ -836,5 +837,63 @@ test('Access scoping: lịch dạy của giáo viên chỉ gồm ca của chính
     const res = await getSchedule(authed('http://localhost/api/schedule'));
     const data = await res.json() as { slots: unknown[] };
     assert.ok(data.slots.length > 1);
+  });
+});
+
+test('Access scoping: thông báo chỉ chủ sở hữu (và ADMIN) đọc/đánh dấu', async (t) => {
+  const repo = LocalRepository.getInstance();
+  const studentId = studentUser.id;
+  const created = await repo.addNotification({
+    title: 'ZZ notif scope',
+    message: 'perm probe',
+    type: 'INFO',
+    recipientRole: 'STUDENT',
+    recipientUserId: studentId,
+    isRead: false,
+  });
+
+  await t.test('giáo viên gọi trần không đọc được thông báo của người khác', async () => {
+    const res = await getNotifications(authed('http://localhost/api/notifications', {}, teacherUser));
+    assert.equal(res.status, 403);
+  });
+
+  await t.test('giáo viên ?userId=<học viên> bị chặn', async () => {
+    const res = await getNotifications(
+      authed(`http://localhost/api/notifications?userId=${studentId}`, {}, teacherUser)
+    );
+    assert.equal(res.status, 403);
+  });
+
+  await t.test('giáo viên MARK_READ thông báo của học viên bị chặn', async () => {
+    const res = await postNotifications(
+      authed('http://localhost/api/notifications', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'MARK_READ', id: created.id }),
+      }, teacherUser)
+    );
+    assert.equal(res.status, 403);
+    const after = (await repo.getNotifications(studentId, 'STUDENT')).find((n) => n.id === created.id);
+    assert.equal(after?.isRead, false, 'thông báo phải còn chưa đọc');
+  });
+
+  await t.test('học viên đọc và đánh dấu đọc thông báo của chính mình', async () => {
+    const list = await getNotifications(
+      authed(`http://localhost/api/notifications?userId=${studentId}`, {}, studentUser)
+    );
+    assert.equal(list.status, 200);
+    const mark = await postNotifications(
+      authed('http://localhost/api/notifications', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'MARK_READ', id: created.id }),
+      }, studentUser)
+    );
+    assert.equal(mark.status, 200);
+  });
+
+  await t.test('ADMIN vẫn đọc theo userId', async () => {
+    const res = await getNotifications(
+      authed(`http://localhost/api/notifications?userId=${studentId}`)
+    );
+    assert.equal(res.status, 200);
   });
 });

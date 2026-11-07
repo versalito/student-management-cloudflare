@@ -12,15 +12,16 @@ export async function GET(request: Request) {
   const requestedUserId = searchParams.get('userId') || undefined;
   const requestedRole = searchParams.get('role') || undefined;
 
-  // Nhân viên xem được thông báo theo người nhận/vai trò; học viên chỉ xem của chính mình.
-  const isStaff = auth.user.role === 'ADMIN' || auth.user.role === 'TEACHER';
-  if (!isStaff && !isSelfOrStaff(auth.user, requestedUserId)) {
+  // Học viên **và giáo viên** chỉ xem thông báo của chính mình; chỉ ADMIN được
+  // xem theo người nhận/vai trò. Trước đây TEACHER nằm trong nhóm "staff" nên
+  // gọi trần là đọc được thông báo của mọi người và `?userId=<khác>` cũng mở.
+  if (auth.user.role !== 'ADMIN' && !isSelfOrStaff(auth.user, requestedUserId)) {
     return NextResponse.json({ error: 'Không có quyền xem thông báo của người khác' }, { status: 403 });
   }
 
   const notifications = await repo.getNotifications(
-    isStaff ? requestedUserId : auth.user.id,
-    isStaff ? requestedRole : auth.user.role,
+    auth.user.role === 'ADMIN' ? requestedUserId : auth.user.id,
+    auth.user.role === 'ADMIN' ? requestedRole : auth.user.role,
   );
   return NextResponse.json({ notifications });
 }
@@ -35,8 +36,9 @@ export async function POST(request: Request) {
 
     // Đánh dấu đã đọc 1 thông báo
     if (action === 'MARK_READ' && id) {
-      const isStaff = auth.user.role === 'ADMIN' || auth.user.role === 'TEACHER';
-      if (!isStaff) {
+      // Chỉ chủ thông báo (hoặc ADMIN) được đánh dấu đã đọc. TEACHER trước đây
+      // nằm trong nhóm "staff" nên đánh dấu đọc được thông báo của học viên.
+      if (auth.user.role !== 'ADMIN') {
         const own = await repo.getNotifications(auth.user.id, auth.user.role);
         if (!own.some((n) => n.id === id)) {
           return NextResponse.json({ error: 'Không có quyền với thông báo này' }, { status: 403 });
