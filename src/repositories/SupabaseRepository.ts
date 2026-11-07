@@ -1406,16 +1406,39 @@ export class SupabaseRepository implements IRepository {
    * Số lớn nhất trong các mã `SCHxxxx`.
    *
    * Không thể `order by id desc limit 1` vì so sánh chuỗi xếp `SCH9999` sau
-   * `SCH10000`; cũng không thể đọc cả bảng chỉ để lấy max. Hàm SQL
-   * `max_schedule_slot_number()` bóc phần số rồi lấy max ngay trong Postgres.
+   * `SCH10000`. Không dùng RPC `max_schedule_slot_number()` nữa: hàm đó chưa
+   * được tạo trên DB production (PostgREST trả PGRST202) nên mọi lần tạo lịch
+   * đều 500, trong khi code không thể tự tạo hàm (REST không cho DDL).
+   *
+   * Cách thuần REST: gom theo độ dài phần số. Trong cùng một độ dài, thứ tự
+   * chuỗi trùng thứ tự số, nên chỉ cần `order=id.desc&limit=10` cho mỗi độ dài
+   * và lấy mã khớp `^SCH\d{n}$` lớn nhất. Xét độ dài giảm dần: mã nhiều chữ số
+   * luôn lớn hơn mã ít chữ số, nên dừng ngay ở độ dài đầu tiên có kết quả.
    */
   public async getMaxScheduleSlotNumber(): Promise<number> {
     const client = this.getClient();
     if (!client) throw new Error("Supabase Cloud client is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
 
-    const { data, error } = await client.rpc('max_schedule_slot_number');
-    if (error) throw new Error(error.message);
-    return Number(data) || 0;
+    for (let digits = 10; digits >= 3; digits--) {
+      const pattern = `SCH${'_'.repeat(digits)}`;
+      const { data, error } = await client
+        .from('schedule_slots')
+        .select('id')
+        .like('id', pattern)
+        .order('id', { ascending: false })
+        .limit(10);
+      if (error) throw new Error(error.message);
+
+      let maxForLength = 0;
+      const re = new RegExp(`^SCH(\\d{${digits}})$`, 'i');
+      for (const row of data || []) {
+        // `_` trong LIKE khớp cả ký tự không phải số, nên vẫn phải lọc lại.
+        const match = re.exec(String((row as any).id || ''));
+        if (match) maxForLength = Math.max(maxForLength, Number(match[1]));
+      }
+      if (maxForLength > 0) return maxForLength;
+    }
+    return 0;
   }
 
   /**
