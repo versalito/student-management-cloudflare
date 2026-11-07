@@ -5,6 +5,7 @@ import { TimeShift } from '@/types/schedule';
 import { ClassEntity } from '@/types/classroom';
 import { ShiftService } from '@/services/ShiftService';
 import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
+import { teacherTeachesClass } from '@/lib/auth/studentScope';
 
 export const dynamic = 'force-dynamic';
 
@@ -217,6 +218,16 @@ export async function POST(request: Request) {
     const section = await resolveSection(classId, sectionId);
     if (!section) {
       return NextResponse.json({ error: 'Không tìm thấy ca học của lớp' }, { status: 404 });
+    }
+
+    // Giáo viên chỉ được ghi danh/đổi ca trong lớp mình phụ trách. Trước đây
+    // route chỉ phân biệt STUDENT và "không phải STUDENT", nên bất kỳ giáo viên
+    // nào cũng thêm/xoá được học viên ở lớp của giáo viên khác.
+    if (auth.user.role === 'TEACHER' && !(await teacherTeachesClass(auth.user.id, classId))) {
+      return NextResponse.json(
+        { error: 'Lớp này không thuộc phạm vi bạn phụ trách' },
+        { status: 403 }
+      );
     }
 
    const shifts = await ShiftService.getAllShifts();

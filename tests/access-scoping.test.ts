@@ -15,6 +15,7 @@ import { POST as postSection, PUT as putSection } from '../src/app/api/classes/s
 import { PUT as putClass } from '../src/app/api/classes/route';
 import { GET as getCurrentSession } from '../src/app/api/attendance/current-session/route';
 import { GET as getRequests } from '../src/app/api/requests/route';
+import { POST as postEnroll } from '../src/app/api/classes/enroll/route';
 import { PUT as putTeacher } from '../src/app/api/teachers/route';
 import { GET as getTeacherCheckin } from '../src/app/api/teacher-checkin/route';
 import { GET as getSessionState } from '../src/app/api/student/session-state/route';
@@ -762,4 +763,49 @@ test('Access scoping: giáo viên không sửa hồ sơ/không đọc chấm cô
     );
     assert.equal(res.status, 403);
   });
+});
+
+test('Access scoping: giáo viên không ghi danh vào lớp mình không dạy', async (t) => {
+  const repo = LocalRepository.getInstance();
+  const foreignClass = (await repo.getAllClasses()).find((cls) => cls.teacherId !== 'GV001');
+  const owned = new Set(
+    (await repo.getClassesByTeacherId('GV001')).flatMap((cls) => cls.studentIds || [])
+  );
+  const studentId = (foreignClass?.studentIds || []).find((id) => !owned.has(id));
+  assert.ok(foreignClass && studentId, 'seed phải có lớp khác với học viên ngoài lớp GV001');
+  const before = await repo.getClassById(foreignClass.id);
+
+  const res = await postEnroll(
+    authed('http://localhost/api/classes/enroll', {
+      method: 'POST',
+      body: JSON.stringify({ classId: foreignClass.id, studentId, action: 'ENROLL' }),
+    }, teacherUser)
+  );
+  assert.equal(res.status, 403, 'không được ghi danh vào lớp ngoài phạm vi');
+
+  const after = await repo.getClassById(foreignClass.id);
+  assert.deepEqual(after?.studentIds, before?.studentIds, 'sĩ số lớp không được đổi');
+});
+
+test('Access scoping: giáo viên tự đổi ca học viên trong lớp mình vẫn được', async (t) => {
+  const repo = LocalRepository.getInstance();
+  const ownClass = (await repo.getClassesByTeacherId('GV001'))[0];
+  const sections = await repo.getClassSections(ownClass.id);
+  const studentId = (sections[0]?.studentIds || [])[0];
+  assert.ok(studentId, 'ca của GV001 phải có học viên');
+
+  const res = await postEnroll(
+    authed('http://localhost/api/classes/enroll', {
+      method: 'POST',
+      body: JSON.stringify({
+        classId: ownClass.id,
+        studentId,
+        action: 'CHANGE_SHIFT',
+        sectionId: sections[0].id,
+        targetSectionId: sections[0].id,
+        targetShiftId: sections[0].shiftId,
+      }),
+    }, teacherUser)
+  );
+  assert.ok([200, 400, 409].includes(res.status), `đổi ca trong lớp mình không được là 403, nhận ${res.status}`);
 });
