@@ -59,13 +59,13 @@ Hai secret cuối không đặt trong `wrangler.toml`; production nạp bằng `
 | Cache asset | `/_next/static/*` → `public, max-age=31536000, immutable` ✅ |
 | Cache HTML | `private, no-store` ✅ |
 | RLS | `anon` key đọc `users/students/tuition_invoices/audit_logs` → 401 `permission denied` ✅ |
-| Mật khẩu tài khoản | **13/17 user còn hash SHA-256 cũ (không salt)**; 12 tài khoản dùng mật khẩu đoán được, gồm 1 ADMIN `password123` ❌ |
+| Mật khẩu tài khoản | Đo lại 2026-11-07: **6/18** user còn hash SHA-256 cũ (không salt); crack được **5** bằng danh sách phổ biến, gồm ADMIN `nguyễn văn tài` = `password123`. Đăng nhập thật trên worker production → 200 kèm quyền ADMIN ❌ |
 | Khoá `service_role` | **Lộ trong git history** (`bd065ac` xoá khỏi `wrangler.toml` nhưng blob cũ vẫn còn). Khoá vẫn hiệu lực tới 2036, `anon` bị chặn nhưng khoá này đọc/ghi được mọi bảng ❌ |
 
 Mục ❌ cần xử lý phía vận hành:
 
 1. **Rotate `SUPABASE_SERVICE_ROLE_KEY` ngay** — chỉ làm được trong Supabase Dashboard → Project Settings → API → *Rotate JWT secret*, sau đó `wrangler secret put SUPABASE_SERVICE_ROLE_KEY`. Lộ key này = toàn quyền database, mọi thứ khoá ở tầng API đều vô nghĩa với người có key. Cân nhắc `git filter-repo` để xoá blob, nhưng repo đã public nên phải coi khoá là đã lộ vĩnh viễn.
-2. Đổi mật khẩu các tài khoản còn dùng `123456` / `password123` (gồm `admin`). Hash cũ chỉ được nâng cấp tự động sang PBKDF2 ở lần đăng nhập kế tiếp (`AuthService.needsRehash`), nhưng mật khẩu yếu thì phải đổi bằng tay.
+2. Đổi mật khẩu các tài khoản còn hash SHA-256, ưu tiên ADMIN `nguyễn văn tài` (`password123`), TEACHER `đàm mỹ thuyết` (`password123`), `gv_nguyen-thi-huong` + `26007` + `26008` (`123456`). Các mật khẩu này đã bị crack và đăng nhập được thật; hash chỉ tự nâng cấp sang PBKDF2 ở lần login kế tiếp (`AuthService.needsRehash`), mật khẩu yếu thì phải đổi bằng tay.
 3. Xoá tài khoản test còn sót trên production: `st_pwd_01` / `ST_PWD_TEST_01` (đăng nhập được bằng `matkhau_cu`), `USR_DROPOUT_TEST`.
 
 ## Cơ sở dữ liệu

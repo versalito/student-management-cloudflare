@@ -161,7 +161,7 @@ Mọi route gọi `authenticate(request, roles)` trước khi chạm dữ liệu
 3. **Điểm danh (attendance)**: session theo giờ thực, timezone `Asia/Saigon`, analytics.
 4. **Học phí & lương (finance)**: tuition invoice, payroll/`sessionRate`, ledger, expense, mã VietQR để học sinh tự chuyển khoản (quản trị đối soát sao kê rồi xác nhận thủ công, **không có webhook/báo chuyển khoản tự động**), monthly package, monthly rollover.
 5. **Conflict Engine**: phát hiện trùng lịch real-time. **Lưu ý:** model 100% online — 1 GV có thể dạy nhiều lớp cùng lúc, KHÔNG chặn teacher-conflict.
-6. **Discord bot**: điểm danh qua Discord, orientation room, cron.
+6. **Discord**: chỉ là nơi dán link phòng học (`classes.meetingLink` thay cho Google Meet). **Không có bot**: không có thư mục `discord-bot/`, không có route `/api/discord/*`, các slash command `/dinh-huong`, `/lop-hoc`, `/vao-hoc` trong `docs/archive/DISCORD_BOT_SPEC.md` và `DISCORD_ORIENTATION_ROOM_SPEC.md` chưa từng được cài đặt.
 7. **Hệ thống phụ**: notification, request, audit log, milestone/package.
 
 ---
@@ -190,7 +190,7 @@ Nợ mở, cần xử lý phía vận hành:
 
 | Việc | Chi tiết |
 |---|---|
-| Đổi mật khẩu yếu | 13/17 user còn hash SHA-256 không salt; 12 tài khoản dùng `123456`/`password123`, trong đó 1 ADMIN. Hash tự nâng cấp sang PBKDF2 ở lần login kế tiếp, mật khẩu thì không. |
+| Đổi mật khẩu yếu | Đo lại trên DB production 2026-11-07: **6/18** user còn hash SHA-256 không salt (đã giảm từ 13/17 nhờ cơ chế tự nâng cấp PBKDF2 khi login). Trong 6 hash còn lại, **5 bị crack bằng danh sách mật khẩu phổ biến**: `nguyễn văn tài` (ADMIN) = `password123`, `đàm mỹ thuyết` (TEACHER) = `password123`, `gv_nguyen-thi-huong` (TEACHER) + `26007`, `26008` (STUDENT) = `123456`. Đăng nhập thật bằng `nguyễn văn tài`/`password123` trên worker production trả **200 kèm quyền ADMIN** (đọc được `/api/finance` và `/api/users`) — đã kiểm chứng, không phải suy đoán. Hash tự nâng cấp sang PBKDF2 ở lần login kế tiếp, mật khẩu thì không. |
 | Nợ lint | `npm run lint` đang `--max-warnings=347` (đã dùng đúng trần). Muốn giảm phải sửa cảnh báo, không được nâng trần để CI xanh. |
 
 ---
@@ -223,7 +223,7 @@ Nợ mở, cần xử lý phía vận hành:
 | Schema database | `supabase/setup.sql` |
 | Đặc tả tính năng cũ | `docs/archive/*_SPEC.md` |
 | Test tính năng X | `tests/*X*.test.ts` |
-| Discord bot | `discord-bot/src/...` |
+| Discord bot | **không tồn tại** — chỉ còn spec lưu trữ ở `docs/archive/DISCORD_*.md` |
 | State toàn cục | `src/context/AppContext.tsx` |
 | Phiên / phân quyền | `src/lib/auth/session.ts`, `src/middleware.ts` |
 | Cache tham chiếu | `src/lib/cache/referenceCache.ts` |

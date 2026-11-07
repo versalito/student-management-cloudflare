@@ -16,7 +16,18 @@ import { authedAsStudent, authed, teacherUser } from './helpers/auth';
  * học viên khác, và (ở route mật khẩu) chiếm được tài khoản quản trị.
  */
 
-const json = async (res: Response) => res.json() as Promise<any>;
+/** Hình dạng tối thiểu của các payload mà test này chạm tới. */
+interface Json {
+  student: { id: string };
+  students: { id: string }[];
+  teachers: { name?: string; phone?: unknown; hourlyRate?: unknown; ratePerSession?: unknown }[];
+  classes: { id: string; studentIds?: string[]; studentCount?: number; isMine?: boolean }[];
+  sections: { studentIds?: unknown; studentScheduleDays?: unknown; studentCount?: number }[];
+  invoices: { studentId: string }[];
+  slots: unknown[];
+}
+
+const json = async (res: Response) => res.json() as Promise<Json>;
 
 test('Access scoping: học viên chỉ đọc được dữ liệu của chính mình', async (t) => {
   const repo = LocalRepository.getInstance();
@@ -75,7 +86,7 @@ test('Access scoping: học viên chỉ đọc được dữ liệu của chính
     const res = await getTeachers(authed('http://localhost/api/teachers', {}, teacherUser));
     const data = await json(res);
     assert.equal(res.status, 200);
-    assert.ok(data.teachers.some((teacher: any) => teacher.hourlyRate !== undefined));
+    assert.ok(data.teachers.some((teacher) => teacher.hourlyRate !== undefined));
   });
 
   await t.test('GET /api/schedule?studentId=<người khác> bị chặn', async () => {
@@ -167,7 +178,7 @@ test('Access scoping: giáo viên không đọc được sổ học phí', async
   await t.test('GET /api/finance cho STUDENT chỉ trả hoá đơn của chính mình', async () => {
     const res = await getFinance(authedAsStudent('ST001')('http://localhost/api/finance?studentId=ST001'));
     assert.equal(res.status, 200);
-    const invoices = (await json(res)).invoices as any[];
+    const invoices = (await json(res)).invoices;
     assert.ok(invoices.every((invoice) => invoice.studentId === 'ST001'));
   });
 });
@@ -186,7 +197,8 @@ test('Access scoping: học viên không nhận danh sách mã học viên của
       assert.equal(klass.studentIds, undefined, 'không được trả mã học viên');
       assert.equal(typeof klass.studentCount, 'number');
     }
-    const own = data.classes.find((klass: any) => klass.id === cls.id);
+    const own = data.classes.find((klass) => klass.id === cls.id);
+    assert.ok(own, 'phải tìm thấy lớp của học viên');
     assert.equal(own.isMine, true, 'học viên nhận ra lớp của mình qua isMine');
   });
 
@@ -209,6 +221,6 @@ test('Access scoping: học viên không nhận danh sách mã học viên của
   await t.test('ADMIN vẫn nhận đủ studentIds', async () => {
     const res = await getClasses(authed('http://localhost/api/classes'));
     const data = await json(res);
-    assert.ok(data.classes.some((klass: any) => Array.isArray(klass.studentIds)));
+    assert.ok(data.classes.some((klass) => Array.isArray(klass.studentIds)));
   });
 });

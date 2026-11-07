@@ -2,8 +2,7 @@ import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { ClassSection } from '@/types/classroom';
 import { ScheduleSlot } from '@/types/schedule';
-import { BulkScheduleService } from '@/services/BulkScheduleService';
-import { getTodayDateStr, getTodayDateStrByDate, dateToDayOfWeek } from '@/utils/date';
+import { getTodayDateStr, dateToDayOfWeek } from '@/utils/date';
 import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
@@ -99,8 +98,6 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await authenticate(request, ['ADMIN','TEACHER']);
   if (auth.response) return auth.response;
-  const actorId = auth.user.id;
-  const actorName = auth.user.name;
 
   try {
     const body = await request.json();
@@ -130,8 +127,9 @@ export async function POST(request: Request) {
     };
     await repo.createClassSection(section);
     return NextResponse.json({ success: true, section });
-  } catch (err: any) {
-    return NextResponse.json({ error: err?.message || 'Lỗi tạo ca học' }, { status: 500 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Lỗi tạo ca học';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -139,7 +137,6 @@ export async function PUT(request: Request) {
   const auth = await authenticate(request, ['ADMIN','TEACHER']);
   if (auth.response) return auth.response;
   const actorId = auth.user.id;
-  const actorName = auth.user.name;
 
   try {
     const body = await request.json();
@@ -266,8 +263,9 @@ export async function PUT(request: Request) {
     });
 
     return NextResponse.json({ success: true, section: sec, syncedSlotsCount });
-  } catch (err: any) {
-    return NextResponse.json({ error: err?.message || 'Lỗi cập nhật ca học' }, { status: 500 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Lỗi cập nhật ca học';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -340,7 +338,8 @@ export async function DELETE(request: Request) {
     });
 
     return NextResponse.json({ success: true, cancelledSlotsCount });
-  } catch (err: any) {
-    return NextResponse.json({ error: err?.message || 'Lỗi xóa ca học' }, { status: 500 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Lỗi ca học';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
