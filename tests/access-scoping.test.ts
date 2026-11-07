@@ -488,3 +488,109 @@ test('Access scoping: giáo viên vẫn nhận được ca chưa phân công', a
     }
   });
 });
+
+test('Access scoping: bootstrap/analytics/roster không mở dữ liệu lớp khác cho giáo viên', async (t) => {
+  const repo = LocalRepository.getInstance();
+  const teacherId = 'GV001';
+
+  await t.test('GET /api/bootstrap?scope=students bị chặn cho giáo viên', async () => {
+    const res = await getBootstrap(
+      authed('http://localhost/api/bootstrap?scope=students', {}, teacherUser)
+    );
+    assert.equal(res.status, 403);
+  });
+
+  await t.test('GET /api/bootstrap?scope=classes không lộ mã học viên lớp khác', async () => {
+    const res = await getBootstrap(
+      authed('http://localhost/api/bootstrap?scope=classes', {}, teacherUser)
+    );
+    const data = await res.json() as { classes: { id: string; studentIds?: string[]; studentCount?: number }[] };
+    assert.equal(res.status, 200);
+    const own = new Set((await repo.getClassesByTeacherId(teacherId)).map((c) => c.id));
+    for (const cls of data.classes) {
+      if (own.has(cls.id)) continue;
+      assert.equal(cls.studentIds, undefined, `lớp ${cls.id} không được lộ studentIds`);
+      assert.equal(typeof cls.studentCount, 'number');
+    }
+  });
+
+  await t.test('GET /api/classes/sections?all=true chỉ trả studentIds của ca mình dạy', async () => {
+    const res = await getSections(
+      authed('http://localhost/api/classes/sections?all=true', {}, teacherUser)
+    );
+    const data = await res.json() as { sections: { id: string; teacherId?: string; studentIds?: string[]; studentCount?: number }[] };
+    assert.equal(res.status, 200);
+    assert.ok(data.sections.length > 0);
+    for (const sec of data.sections) {
+      if (sec.teacherId === teacherId) continue;
+      assert.equal(sec.studentIds, undefined, `ca ${sec.id} không được lộ studentIds`);
+      assert.equal(typeof sec.studentCount, 'number');
+    }
+  });
+
+  await t.test('GET /api/attendance/analytics chỉ trả học viên lớp mình dạy', async () => {
+    const { GET: getAnalytics } = await import('../src/app/api/attendance/analytics/route');
+    const res = await getAnalytics(
+      authed('http://localhost/api/attendance/analytics?month=2026-09', {}, teacherUser)
+    );
+    const data = await res.json() as { items: { studentId: string }[] };
+    assert.equal(res.status, 200);
+
+    const ownStudents = new Set(
+      (await repo.getClassesByTeacherId(teacherId)).flatMap((cls) => cls.studentIds || [])
+    );
+    for (const section of await repo.getSectionsByTeacherId(teacherId)) {
+      for (const id of section.studentIds || []) ownStudents.add(id);
+    }
+    for (const item of data.items) {
+      assert.ok(ownStudents.has(item.studentId), `lộ học viên ${item.studentId}`);
+    }
+  });
+
+  await t.test('GET /api/attendance/analytics?classId=<lớp ngoài> bị chặn', async () => {
+    const { GET: getAnalytics } = await import('../src/app/api/attendance/analytics/route');
+    const own = new Set((await repo.getClassesByTeacherId(teacherId)).map((c) => c.id));
+    const foreign = (await repo.getAllClasses()).find((c) => !own.has(c.id));
+    assert.ok(foreign, 'seed phải có lớp ngoài phạm vi');
+
+    const res = await getAnalytics(
+      authed(`http://localhost/api/attendance/analytics?classId=${foreign.id}`, {}, teacherUser)
+    );
+    assert.equal(res.status, 403);
+  });
+});
+
+test('Access scoping: giáo viên vẫn mở được sổ điểm danh theo ca (slotId)', async (t) => {
+  const repo = LocalRepository.getInstance();
+  const teacherId = 'GV001';
+  const ownClassIds = new Set((await repo.getClassesByTeacherId(teacherId)).map((c) => c.id));
+
+  const allSlots = await repo.getAllScheduleSlots();
+  const ownSlot = allSlots.find((s) => ownClassIds.has(s.classId));
+  const foreignSlot = allSlots.find((s) => !ownClassIds.has(s.classId));
+  assert.ok(ownSlot && foreignSlot, 'seed phải có ca trong và ngoài phạm vi');
+
+  await t.test('?slotId= ca mình dạy trả sổ (không rỗng nhầm)', async () => {
+    const res = await getAttendance(
+      authed(`http://localhost/api/attendance?slotId=${ownSlot.id}`, {}, teacherUser)
+    );
+    assert.equal(res.status, 200);
+    const data = await res.json() as { records: { classId?: string }[] };
+    assert.ok(Array.isArray(data.records));
+    // Server ghép roster của ca vào sổ; nếu nhánh phân quyền chặn sớm, mảng rỗng.
+    assert.ok(
+      data.records.length > 0 || (ownSlot.sectionId === undefined && ownSlot.classId),
+      'sổ của ca mình dạy không được rỗng'
+    );
+    for (const rec of data.records) {
+      assert.equal(rec.classId, ownSlot.classId);
+    }
+  });
+
+  await t.test('?slotId= ca lớp khác bị chặn', async () => {
+    const res = await getAttendance(
+      authed(`http://localhost/api/attendance?slotId=${foreignSlot.id}`, {}, teacherUser)
+    );
+    assert.equal(res.status, 403);
+  });
+});

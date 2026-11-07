@@ -3,6 +3,7 @@ import { repo } from '@/repositories';
 import { authenticate } from '@/lib/auth/session';
 import { loadScheduleView } from '@/services/ScheduleViewService';
 import { withCacheHeader, withReferenceCache } from '@/lib/cache/referenceCache';
+import { getTeacherClassIds } from '@/lib/auth/studentScope';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,9 +42,10 @@ export async function GET(request: Request) {
   const parts = parseParts(searchParams.get('scope'));
   const date = searchParams.get('date') || undefined;
 
-  // Học viên chỉ bootstrap được dữ liệu của chính mình: không thấy danh sách
-  // học viên (SĐT phụ huynh) và không kéo được lịch của cả trung tâm.
-  if (auth.user.role === 'STUDENT' && parts.includes('students')) {
+  // Danh sách học viên (kèm SĐT) là dữ liệu quản trị: giáo viên lấy học viên
+  // qua `GET /api/students` (đã giới hạn theo lớp mình dạy), còn bootstrap chỉ
+  // phục vụ `/admin/calendar`. Giữ đúng một đường đọc để phạm vi không lệch.
+  if (auth.user.role !== 'ADMIN' && parts.includes('students')) {
     return NextResponse.json(
       { error: 'Không có quyền tải danh sách học viên' },
       { status: 403 }
@@ -74,8 +76,18 @@ export async function GET(request: Request) {
     const body: Record<string, unknown> = {};
     const statuses: string[] = [];
 
+    // Giáo viên không cần thấy mã học viên của lớp mình không dạy: bootstrap
+    // phục vụ `/admin/calendar`, còn portal giáo viên đọc `/api/classes`.
+    const teacherClassIds = auth.user.role === 'TEACHER'
+      ? await getTeacherClassIds(auth.user.id)
+      : null;
+
     if (wants.has('classes')) {
-      body.classes = classes ?? [];
+      body.classes = (classes ?? []).map((cls) => {
+        if (!teacherClassIds || teacherClassIds.has(cls.id)) return cls;
+        const { studentIds, ...rest } = cls;
+        return { ...rest, studentCount: studentIds?.length ?? 0 };
+      });
       statuses.push(classesResult ? classesResult.status : 'bypass');
     }
     if (wants.has('teachers')) {
@@ -107,7 +119,10 @@ export async function GET(request: Request) {
           },
           { classes: classes ?? undefined, teachers: teachers ?? undefined }
         ).then((view) => {
-          body.slots = view.slots;
+          // Giáo viên chỉ nhận ca của lớp mình phụ trách.
+          body.slots = teacherClassIds
+            ? view.slots.filter((slot) => teacherClassIds.has(slot.classId))
+            : view.slots;
         })
       );
     }

@@ -18,6 +18,18 @@ function toStudentView(sec: ClassSection, studentId: string) {
   };
 }
 
+/**
+ * Giáo viên chỉ cần mã học viên của ca mình dạy (để mở sổ điểm danh); ca của
+ * lớp/giáo viên khác chỉ cần sĩ số để biết ca còn trống mà nhận. Trước đây
+ * `?all=true` trả nguyên `studentIds` của mọi ca trong trung tâm.
+ */
+function toTeacherView(sec: ClassSection, teacherId: string) {
+  const isOwn = sec.teacherId === teacherId;
+  if (isOwn) return sec;
+  const { studentIds, studentScheduleDays: _studentScheduleDays, ...rest } = sec;
+  return { ...rest, studentCount: studentIds?.length ?? 0 };
+}
+
 export async function GET(request: Request) {
   const auth = await authenticate(request, ['ADMIN','TEACHER','STUDENT']);
   if (auth.response) return auth.response;
@@ -33,6 +45,14 @@ export async function GET(request: Request) {
   // Học viên chỉ xem được ca của lớp (để chọn ca đăng ký) và ca của chính mình;
   // không được kéo ca của một học viên khác hay toàn bộ ca của trung tâm.
   const isStudent = auth.user.role === 'STUDENT';
+  const isTeacher = auth.user.role === 'TEACHER';
+  /** Áp phạm vi hiển thị theo vai trò cho một ca. */
+  const view = (sec: ClassSection) =>
+    isStudent
+      ? toStudentView(sec, auth.user.id)
+      : isTeacher
+        ? toTeacherView(sec, auth.user.id)
+        : sec;
   if (isStudent) {
     if ((studentId && !isSelfOrStaff(auth.user, studentId)) || all === 'true') {
       return NextResponse.json(
@@ -57,11 +77,11 @@ export async function GET(request: Request) {
 
   if (id) {
     const sec = await repo.getSectionById(id);
-    return NextResponse.json({ section: sec });
+    return NextResponse.json({ section: sec ? view(sec) : sec });
   }
   if (all === 'true') {
     const sections = await repo.getAllClassSections();
-    return NextResponse.json({ sections });
+    return NextResponse.json({ sections: sections.map(view) });
   }
   if (classIdsParam) {
     const ids = classIdsParam.split(',').map((s) => s.trim()).filter(Boolean);
@@ -70,27 +90,21 @@ export async function GET(request: Request) {
       const secs = await repo.getClassSections(cid);
       // Học viên xem ca để chọn/đổi ca: cần biết mình có trong ca không và ca
       // đông bao nhiêu, không cần mã học viên của cả lớp.
-      sectionsByClass[cid] = isStudent
-        ? secs.map((sec) => toStudentView(sec, auth.user.id))
-        : secs;
+      sectionsByClass[cid] = secs.map(view);
     }
     return NextResponse.json({ sectionsByClass });
   }
   if (classId) {
     const sections = await repo.getClassSections(classId);
-    return NextResponse.json({
-      sections: isStudent ? sections.map((sec) => toStudentView(sec, auth.user.id)) : sections,
-    });
+    return NextResponse.json({ sections: sections.map(view) });
   }
   if (studentId) {
     const sections = await repo.getSectionsByStudentId(studentId);
-    return NextResponse.json({
-      sections: isStudent ? sections.map((sec) => toStudentView(sec, auth.user.id)) : sections,
-    });
+    return NextResponse.json({ sections: sections.map(view) });
   }
   if (teacherId) {
     const sections = await repo.getSectionsByTeacherId(teacherId);
-    return NextResponse.json({ sections });
+    return NextResponse.json({ sections: sections.map(view) });
   }
   return NextResponse.json({ error: 'Thiếu classId, studentId hoặc teacherId' }, { status: 400 });
 }

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { Student } from '@/types/student';
 import { authenticate } from '@/lib/auth/session';
+import { getTeacherClassIds } from '@/lib/auth/studentScope';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,23 +18,39 @@ export async function GET(request: Request) {
       new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Saigon' }).format(new Date()).slice(0, 7);
     const classId = searchParams.get('classId');
 
+    // Giáo viên chỉ xem thống kê chuyên cần của lớp mình dạy. Trước đây
+    // `classId=ALL` (mặc định) trả chuyên cần của toàn trung tâm, kèm tên và
+    // tỷ lệ của từng học viên lớp khác.
+    let scopeClassIds: Set<string> | null = null;
+    if (auth.user.role === 'TEACHER') {
+      scopeClassIds = await getTeacherClassIds(auth.user.id);
+      if (classId && classId !== 'ALL' && !scopeClassIds.has(classId)) {
+        return NextResponse.json(
+          { success: false, error: 'Lớp này không thuộc phạm vi bạn phụ trách' },
+          { status: 403 }
+        );
+      }
+    }
+
     // 1. Lấy toàn bộ học viên // 1. Lấy toàn bộ học viên & lớp học ca học
     const [allStudents, allSlots] = await Promise.all([
       repo.getAllStudents(),
       repo.getAllScheduleSlots(),
     ]);
 
-    // Lọc ca học trong tháng
-    const slotsInMonth = allSlots.filter(s => s.date.startsWith(month));
+    // Lọc ca học trong tháng (và trong phạm vi lớp của giáo viên nếu có)
+    const slotsInMonth = allSlots.filter(
+      s => s.date.startsWith(month) && (!scopeClassIds || scopeClassIds.has(s.classId))
+    );
     const slotIdsInMonth = new Set(slotsInMonth.map(s => s.id));
 
     // Sổ điểm danh của tháng: 1 query, không lặp theo lớp (N+1 cũ).
     const records = await repo.getAttendanceByMonth(month);
 
     // Giữ bản ghi thuộc tháng, hoặc bản ghi gắn ca học của tháng này.
-    const typeFiltered = classId && classId !== 'ALL'
+    const typeFiltered = (classId && classId !== 'ALL'
       ? records.filter(r => r.classId === classId)
-      : records;
+      : records).filter(r => !scopeClassIds || scopeClassIds.has(r.classId));
     const monthlyRecords = typeFiltered.filter(
       r => r.date.startsWith(month) || slotIdsInMonth.has(r.scheduleSlotId)
     );
@@ -60,6 +77,9 @@ export async function GET(request: Request) {
     allStudents.forEach(st => {
       if (classId && classId !== 'ALL') {
         if (!st.enrolledClassIds.includes(classId)) return;
+      }
+      if (scopeClassIds) {
+        if (!st.enrolledClassIds.some((cid) => scopeClassIds!.has(cid))) return;
       }
       studentStats[st.id] = {
         studentId: st.id,

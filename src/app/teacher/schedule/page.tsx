@@ -569,7 +569,7 @@ export default function TeacherSchedulePage() {
 
                             {layoutDaySlots(daySlots).map(({ slot, startMin, endMin, isOvernight, column, columnCount, overlap }) => {
                               const cls = classMap.get(slot.classId);
-                              const studentCount = cls?.studentIds?.length || 0;
+                              const studentCount = cls?.studentCount ?? cls?.studentIds?.length ?? 0;
                               const meetingLink = slot.meetingLink || cls?.meetingLink;
                               const topPx = minuteToTopPx(startMin);
                               const heightPx = Math.max(minuteToTopPx(endMin) - topPx, 34);
@@ -733,7 +733,7 @@ export default function TeacherSchedulePage() {
 
                     {dayDetail.laidOut.map(({ slot, startMin, endMin, column, columnCount, overlap }) => {
                       const cls = classMap.get(slot.classId);
-                      const studentCount = cls?.studentIds?.length || 0;
+                      const studentCount = cls?.studentCount ?? cls?.studentIds?.length ?? 0;
                       const meetingLink = slot.meetingLink || cls?.meetingLink;
                       const topPx = (startMin - dayDetailBounds.startMinutes) * DAY_DETAIL_PX_PER_MINUTE;
                       const heightPx = Math.max((endMin - startMin) * DAY_DETAIL_PX_PER_MINUTE, 40);
@@ -890,7 +890,7 @@ export default function TeacherSchedulePage() {
                               <Users size={13} className="text-primary" /> Sĩ số:
                             </span>
                             <span className="font-semibold tabular">
-                              {cls.studentIds.length} học viên đăng ký
+                              {(cls.studentCount ?? cls.studentIds?.length ?? 0)} học viên đăng ký
                             </span>
                           </div>
                         </div>

@@ -19,6 +19,18 @@ function toStudentView(cls: ClassEntity, studentId: string) {
   return { ...rest, studentCount: studentIds?.length ?? 0, isMine: (studentIds || []).includes(studentId) };
 }
 
+/**
+ * Giáo viên cần thấy toàn bộ lớp để biết lớp nào còn ca trống mà nhận dạy, và
+ * cần `studentIds` của lớp mình để mở sổ điểm danh. Nhưng mã học viên của lớp
+ * người khác không phục vụ gì cho portal giáo viên — trả số lượng thay vì danh
+ * sách, giống cách đang làm với học viên.
+ */
+function toTeacherView(cls: ClassEntity, ownClassIds: Set<string>) {
+  if (ownClassIds.has(cls.id)) return cls;
+  const { studentIds, ...rest } = cls;
+  return { ...rest, studentCount: studentIds?.length ?? 0 };
+}
+
 export async function GET(request: Request) {
   const auth = await authenticate(request, ['ADMIN','TEACHER','STUDENT']);
   if (auth.response) return auth.response;
@@ -28,21 +40,34 @@ export async function GET(request: Request) {
   const studentId = searchParams.get('studentId');
   const id = searchParams.get('id');
   const isStudent = auth.user.role === 'STUDENT';
+  const isTeacher = auth.user.role === 'TEACHER';
+  const ownClassIds = isTeacher
+    ? new Set((await repo.getSectionsByTeacherId(auth.user.id)).map((sec) => sec.classId)
+        .concat((await repo.getClassesByTeacherId(auth.user.id)).map((cls) => cls.id)))
+    : new Set<string>();
+
+  /** Áp phạm vi hiển thị theo vai trò cho một lớp. */
+  const view = (cls: ClassEntity) =>
+    isStudent
+      ? toStudentView(cls, auth.user.id)
+      : isTeacher
+        ? toTeacherView(cls, ownClassIds)
+        : cls;
 
   try {
     if (id) {
       const cls = await repo.getClassById(id);
       if (!cls) return NextResponse.json({ class: null });
-      return NextResponse.json({ class: isStudent ? toStudentView(cls, auth.user.id) : cls });
+      return NextResponse.json({ class: view(cls) });
     }
 
     // Đường đọc phổ biến nhất (mọi trang admin): danh sách lớp đầy đủ, ít đổi.
     if (!studentId && !teacherId) {
       const all = await cachedJson('classes', 'all', () => repo.getAllClasses(), (classes) => ({ classes }));
-      if (!isStudent) return all;
+      if (auth.user.role === 'ADMIN') return all;
       const { classes } = await all.json();
       return NextResponse.json({
-        classes: classes.map((cls: ClassEntity) => toStudentView(cls, auth.user.id)),
+        classes: classes.map((cls: ClassEntity) => view(cls)),
       });
     }
 
@@ -64,11 +89,7 @@ export async function GET(request: Request) {
       }
     }
 
-    return NextResponse.json({
-      classes: isStudent
-        ? classes.map((cls: ClassEntity) => toStudentView(cls, auth.user.id))
-        : classes,
-    });
+    return NextResponse.json({ classes: classes.map((cls: ClassEntity) => view(cls)) });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Lỗi khi tải lớp học';
     return NextResponse.json({ classes: [], error: message }, { status: 500 });

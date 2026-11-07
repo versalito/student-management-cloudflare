@@ -4,7 +4,7 @@ import { AttendanceRecord, AttendanceStatus } from '@/types/attendance';
 import { getTodayDateStr, getNowTimeStr, timeToMinutes, dateToDayOfWeek } from '@/utils/date';
 import { resolveScheduleSlotTimes } from '@/services/SlotTimeService';
 import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
-import { getTeacherClassIds, teacherTeachesClass } from '@/lib/auth/studentScope';
+import { getTeacherClassIds, teacherTeachesClass, teacherTeachesStudent } from '@/lib/auth/studentScope';
 import { settleBookingsAttended } from '@/services/BookingService';
 import { settleSlotStatusesFromAttendance } from '@/services/SlotSettlementService';
 
@@ -51,16 +51,34 @@ export async function GET(request: Request) {
     }
   }
 
-  // Giáo viên chỉ đọc sổ của lớp mình phụ trách. Không truyền `classId` thì
-  // giới hạn về đúng tập lớp đó, thay vì trả cả ngày của toàn trung tâm.
+  // Giáo viên chỉ đọc sổ của lớp mình phụ trách.
+  //
+  // Trước đây nhánh này chỉ kiểm `classId` và trả sớm khi thiếu tham số, nên
+  // `?slotId=` (đường trang Điểm danh dùng) bị chặn thành sổ rỗng, còn `?date=`
+  // trả cả ngày của trung tâm. Giờ kiểm đúng khoá của từng nhánh rồi mới lọc.
   if (auth.user.role === 'TEACHER') {
     const searchParams = new URL(request.url).searchParams;
-    const requestedClassId = searchParams.get('classId');
     const allowed = await getTeacherClassIds(auth.user.id);
+    const requestedClassId = searchParams.get('classId');
     if (requestedClassId && !allowed.has(requestedClassId)) {
       return NextResponse.json({ error: 'Lớp này không thuộc phạm vi bạn phụ trách' }, { status: 403 });
     }
-    if (!requestedClassId) {
+
+    const slotId = searchParams.get('slotId');
+    if (slotId) {
+      const slot = await repo.getScheduleSlotById(slotId);
+      if (slot && !allowed.has(slot.classId)) {
+        return NextResponse.json({ error: 'Ca này không thuộc phạm vi bạn phụ trách' }, { status: 403 });
+      }
+    }
+
+    const requestedStudentId = searchParams.get('studentId');
+    if (requestedStudentId && !(await teacherTeachesStudent(auth.user.id, requestedStudentId))) {
+      return NextResponse.json({ error: 'Học viên này không thuộc lớp bạn phụ trách' }, { status: 403 });
+    }
+
+    // Không có khoá nào: đọc sổ trong ngày nhưng chỉ giữ lớp mình dạy.
+    if (!requestedClassId && !slotId && !requestedStudentId) {
       const records = await repo.getAttendanceByDate(
         searchParams.get('date') || getTodayDateStr()
       );
