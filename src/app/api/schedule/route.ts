@@ -26,6 +26,18 @@ export async function GET(request: Request) {
     );
   }
 
+  // Giáo viên luôn bị ép về lịch dạy của chính mình. Trước đây gọi trần trả cả
+  // 418 ca của trung tâm (mọi lớp, mọi giáo viên, kèm link phòng học); portal
+  // vẫn luôn truyền `teacherId` nên không ai thấy, nhưng API thì mở.
+  const isTeacher = auth.user.role === 'TEACHER';
+  const requestedTeacherId = searchParams.get('teacherId');
+  if (isTeacher && requestedTeacherId && requestedTeacherId !== auth.user.id) {
+    return NextResponse.json(
+      { slots: [], error: 'Không có quyền xem lịch dạy của giáo viên khác' },
+      { status: 403 }
+    );
+  }
+
   try {
     const view = await loadScheduleView({
       date: searchParams.get('date') || undefined,
@@ -34,7 +46,11 @@ export async function GET(request: Request) {
       // Lớp/giáo viên: học viên chỉ xin được lịch của lớp mình đã ghi danh —
       // `ScheduleViewService` kiểm tra lại, lớp ngoài phạm vi bị bỏ qua.
       classId: searchParams.get('classId') || undefined,
-      teacherId: isStudent ? undefined : searchParams.get('teacherId') || undefined,
+      teacherId: isStudent
+        ? undefined
+        : isTeacher
+          ? auth.user.id
+          : searchParams.get('teacherId') || undefined,
       studentId: isStudent ? auth.user.id : searchParams.get('studentId') || undefined,
     });
 

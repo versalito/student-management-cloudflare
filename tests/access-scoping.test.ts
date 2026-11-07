@@ -809,3 +809,32 @@ test('Access scoping: giáo viên tự đổi ca học viên trong lớp mình v
   );
   assert.ok([200, 400, 409].includes(res.status), `đổi ca trong lớp mình không được là 403, nhận ${res.status}`);
 });
+
+test('Access scoping: lịch dạy của giáo viên chỉ gồm ca của chính mình', async (t) => {
+  const repo = LocalRepository.getInstance();
+  const all = await repo.getAllScheduleSlots();
+  const others = all.filter((s) => s.teacherId !== 'GV001');
+  assert.ok(all.some((s) => s.teacherId === 'GV001'), 'seed phải có ca của GV001');
+  assert.ok(others.length > 0, 'seed phải có ca của giáo viên khác');
+
+  await t.test('gọi trần không trả ca người khác', async () => {
+    const res = await getSchedule(authed('http://localhost/api/schedule', {}, teacherUser));
+    assert.equal(res.status, 200);
+    const data = await res.json() as { slots: { teacherId: string }[] };
+    assert.ok(data.slots.length > 0);
+    for (const slot of data.slots) assert.equal(slot.teacherId, 'GV001');
+  });
+
+  await t.test('?teacherId=<đồng nghiệp> bị chặn', async () => {
+    const res = await getSchedule(
+      authed(`http://localhost/api/schedule?teacherId=${others[0].teacherId}`, {}, teacherUser)
+    );
+    assert.equal(res.status, 403);
+  });
+
+  await t.test('ADMIN vẫn xem được lịch toàn trung tâm', async () => {
+    const res = await getSchedule(authed('http://localhost/api/schedule'));
+    const data = await res.json() as { slots: unknown[] };
+    assert.ok(data.slots.length > 1);
+  });
+});
