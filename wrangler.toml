@@ -16,7 +16,10 @@ mode = "smart"
 DATA_SOURCE = "supabase"
 NEXT_PUBLIC_APP_ENV = "production"
 NEXT_PUBLIC_ENABLE_DEV_ROLE_SWITCHER = "false"
-NEXT_PUBLIC_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12Y3dkcXptdmdqZHdxbm54YXhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4Mjk4MTcsImV4cCI6MjEwNTQwNTgxN30.ofWMziipowuH3TtFSvkSloHrpeoXyobJpztMPccrMck"
+# Khoá công khai kiểu mới (sb_publishable_*), thay cho legacy anon JWT đã bị tắt
+# 2026-11-07. Không phải bí mật: mọi truy cập DB thật đi qua SUPABASE_SERVICE_ROLE_KEY
+# (secret riêng), và RLS chặn sạch role anon (supabase/rls_lockdown.sql).
+NEXT_PUBLIC_SUPABASE_ANON_KEY = "sb_publishable_d1hTNaAJhB7JJa-CtXUDNw_bEswCepX"
 NEXT_PUBLIC_SUPABASE_URL = "https://mvcwdqzmvgjdwqnnxaxb.supabase.co"
 SUPABASE_URL = "https://mvcwdqzmvgjdwqnnxaxb.supabase.co"
 
