@@ -143,8 +143,13 @@ export class LedgerService {
 }
 
 /**
- * Một ca được tính trả lương khi giáo viên đã chấm công vào ca,
- * hoặc ca đã được đánh dấu hoàn thành (dữ liệu cũ trước khi có chấm công).
+ * Một ca được tính trả lương khi và chỉ khi ca đã được đánh dấu `Đã hoàn thành`.
+ *
+ * Đây là tiêu chí duy nhất, dùng chung với `TuitionPayrollService`. Không tính
+ * theo `checkinTime`: trước đây comment mô tả "chấm công vào ca là đủ" nhưng code
+ * thì không làm vậy, và nếu cộng thêm thì một ca sẽ bị tính ở cả hai nơi.
+ * `Đã hoàn thành` được ghi bởi luồng giáo viên CHECKOUT hoặc bởi
+ * `SlotSettlementService` khi sổ điểm danh của buổi đã kết thúc được lưu.
  */
 function isSessionPayable(slot: { checkinTime?: string; status: string }): boolean {
   if (slot.status === 'Đã hủy') return false;
