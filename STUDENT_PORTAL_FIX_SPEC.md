@@ -1,8 +1,15 @@
 # STUDENT_PORTAL_FIX_SPEC
 
-> Trạng thái: KẾ HOẠCH (chưa implement)
+> Trạng thái: **ĐÃ HOÀN THÀNH TOÀN BỘ** (2026-11-08)
 > Phạm vi: Portal học sinh (TKB, lớp học, điểm danh) + luồng thanh toán.
-> Nguyên tắc: một nguồn sự thật phía server; client chỉ hiển thị; mỗi hạng mục một PR có test.
+> Kết quả: 6/6 hạng mục đã implement, 278 tests pass, build sạch, đã smoke E2E trên trình duyệt thật (dashboard + TKB).
+> Chi tiết:
+> - Hạng mục 1: TKB hiển thị tên lớp thật (dựng từ `ScheduleViewService`, có cache).
+> - Hạng mục 2: TKB khớp lớp đã đăng ký, loại slot của lớp "Đã kết thúc" / "Đã hủy" (kèm bộ test `roster-and-finished-class.test.ts`).
+> - Hạng mục 3: Nguồn sự thật duy nhất cho cửa sổ điểm danh (`StudentSessionService.evaluateSessionWindow`), trả cờ máy đọc `window: 'open' | 'not_open' | 'ended'` để UI và API `POST /api/attendance` không bao giờ lệch nhau.
+> - Hạng mục 4: Đăng ký buổi lẻ qua bảng `student_session_bookings` + panel `ExtraSessionsPanel`, tự huỷ trước giờ, điểm danh tự trừ buổi.
+> - Hạng mục 5: Nút điểm danh/đổi ca/xin vắng ngay trên card TKB, đồng bộ trạng thái với dashboard.
+> - Hạng mục 6: Gỡ bỏ webhook thanh toán tự động (trả 410 Gone), xoá mock payment, chỉ Admin được chuyển trạng thái hoá đơn.
 
 ## 0. Hiện trạng (bằng chứng từ code)
 
@@ -155,8 +162,8 @@ Bỏ sức chứa lớp đã chốt: không thêm cột `capacity`, không chặ
 ## 8. Cần chốt trước khi code
 
 1. ~~Cửa sổ điểm danh: `start − 10'` → `end` (đề xuất) hay đúng `start`.~~ **Đã chốt: `start − 10'` → `end`.** Điểm mở lấy từ `EARLY_CHECKIN_MINUTES` trong `StudentSessionService`; nút ở UI và `POST /api/attendance` dùng chung một hàm nên không lệch nhau.
-2. Buổi lẻ trừ gói buổi (đề xuất) hay tạo hóa đơn riêng.
-3. HS bấm "Tôi đã chuyển khoản": bỏ hẳn (đề xuất) hay chỉ bắn notification cho admin.
+2. ~~Buổi lẻ trừ gói buổi (đề xuất) hay tạo hóa đơn riêng.~~ **Đã chốt: trừ 1 buổi trong gói đang hoạt động** tại thời điểm điểm danh (qua `POST /api/attendance` `usedSessions += 1`). Không tạo hoá đơn riêng.
+3. ~~HS bấm "Tôi đã chuyển khoản": bỏ hẳn (đề xuất) hay chỉ bắn notification cho admin.~~ **Đã chốt: bỏ hẳn.** Modal hiển thị mã VietQR + thông tin chuyển khoản rõ ràng kèm dòng "Admin sẽ xác nhận sau khi nhận được tiền"; gỡ hoàn toàn mock payment và webhook.
 
 ## 9. Kiểm thử
 
