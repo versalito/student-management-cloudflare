@@ -3,6 +3,7 @@ import { repo } from '@/repositories';
 import { AttendanceRecord, AttendanceStatus } from '@/types/attendance';
 import { getTodayDateStr, getNowTimeStr, timeToMinutes, dateToDayOfWeek } from '@/utils/date';
 import { resolveScheduleSlotTimes } from '@/services/SlotTimeService';
+import { evaluateSessionWindow } from '@/services/StudentSessionService';
 import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 import { getTeacherClassIds, teacherTeachesClass, teacherTeachesStudent } from '@/lib/auth/studentScope';
 import { settleBookingsAttended } from '@/services/BookingService';
@@ -275,19 +276,14 @@ export async function POST(request: Request) {
 
       const nowMins = timeToMinutes(nowTimeStr);
       const startMins = timeToMinutes(effective.startTime);
-      const endMins = timeToMinutes(effective.endTime);
+      const window = evaluateSessionWindow(effective.startTime, effective.endTime, nowMins);
 
-      // Ca qua nửa đêm (vd 22:00 -> 01:00): hợp lệ khi nowMins >= startMins HOẶC nowMins <= endMins.
-      const isOvernight = startMins > endMins;
-      const inShiftWindow = isOvernight
-        ? (nowMins >= startMins || nowMins <= endMins)
-        : (nowMins >= startMins && nowMins <= endMins);
-
-      if (!inShiftWindow) {
+      if (!window.open) {
         return NextResponse.json(
           {
             success: false,
-            error: `Chỉ được điểm danh khi ca học đang diễn ra (${effective.startTime} - ${effective.endTime}). Hiện tại là ${nowTimeStr}`,
+            error: `${window.reason}. Ca học ${effective.startTime} - ${effective.endTime}, hiện tại là ${nowTimeStr}.`,
+            code: window.status === 'ended' ? 'SESSION_ENDED' : 'SESSION_NOT_OPEN',
           },
           { status: 400 }
         );

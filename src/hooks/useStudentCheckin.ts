@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useToast } from '@/components/ui/Toast';
 import type { AttendanceRecord } from '@/types/attendance';
-import type { SessionStateSlot, StudentSessionState } from '@/types/session';
+import type { SessionStateSlot, SessionWindowStatus, StudentSessionState } from '@/types/session';
 
 interface BadgeOverride {
   status: string;
@@ -13,7 +13,7 @@ interface BadgeOverride {
 export type CheckinState =
   | { type: 'done'; status: string; time: string }
   | { type: 'open' }
-  | { type: 'closed'; reason: string };
+  | { type: 'closed'; reason: string; window: SessionWindowStatus };
 
 interface Options {
   studentId?: string;
@@ -66,9 +66,10 @@ export function useStudentCheckin({ studentId, attendance = [] }: Options) {
           return { type: 'done', status: srv.checkedIn.status, time: srv.checkedIn.checkinTime || '' };
         }
         if (srv.canCheckIn) return { type: 'open' };
-        return { type: 'closed', reason: srv.reason };
+        return { type: 'closed', reason: srv.reason, window: srv.window };
       }
-      return { type: 'closed', reason: 'Chưa tới giờ' };
+      // Chưa có dữ liệu server cho buổi này: coi như chưa mở, không đoán giờ.
+      return { type: 'closed', reason: 'Chưa tới giờ', window: 'not_open' };
     },
     [attendance, badges, sessionMap, studentId]
   );

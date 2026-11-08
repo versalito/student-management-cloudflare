@@ -76,7 +76,7 @@ slotsInTimetable(student)  == slots(class ∈ classesInTimetable) − slot 'Đã
 
 **Acceptance**
 - HS A không thấy ca của lớp HS B ở bất kỳ thời điểm nào.
-- Trước giờ 30' → nút disabled, lý do "Chưa đến giờ"; trong cửa sổ → enabled; sau `endTime` → "Ca đã kết thúc".
+- Trước khi mở (sớm hơn 10' so với `startTime`) → nút disabled, lý do "Còn N phút nữa mới mở điểm danh (mở sớm 10 phút)"; trong cửa sổ → enabled; sau `endTime` → "Ca đã kết thúc".
 - Ở 2 múi giờ máy khác nhau (UTC, +07), trạng thái nút giống nhau.
 
 ## 4. Hạng mục 4 — Chọn lịch lẻ (đăng ký từng buổi)
@@ -154,7 +154,7 @@ Bỏ sức chứa lớp đã chốt: không thêm cột `capacity`, không chặ
 
 ## 8. Cần chốt trước khi code
 
-1. Cửa sổ điểm danh: `start − 10'` → `end` (đề xuất) hay đúng `start`.
+1. ~~Cửa sổ điểm danh: `start − 10'` → `end` (đề xuất) hay đúng `start`.~~ **Đã chốt: `start − 10'` → `end`.** Điểm mở lấy từ `EARLY_CHECKIN_MINUTES` trong `StudentSessionService`; nút ở UI và `POST /api/attendance` dùng chung một hàm nên không lệch nhau.
 2. Buổi lẻ trừ gói buổi (đề xuất) hay tạo hóa đơn riêng.
 3. HS bấm "Tôi đã chuyển khoản": bỏ hẳn (đề xuất) hay chỉ bắn notification cho admin.
 

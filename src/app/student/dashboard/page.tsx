@@ -276,7 +276,7 @@ export default function StudentDashboardPage() {
                           variant="secondary"
                           size="sm"
                           icon={<ArrowRightLeft size={14} />}
-                          disabled={state.type === 'closed' && state.reason === 'Ca đã kết thúc'}
+                          disabled={state.type === 'closed' && state.window === 'ended'}
                           onClick={() => openSwap(slot)}
                         >
                           Đổi ca
