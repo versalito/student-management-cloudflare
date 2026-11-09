@@ -14,6 +14,7 @@ import { LinkButton } from '@/components/ui/LinkButton';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Sheet } from '@/components/ui/Sheet';
+import { QuickClassModal } from '@/components/common/QuickClassModal';
 import { Field, Textarea } from '@/components/ui/Field';
 import { useToast } from '@/components/ui/Toast';
 import { useStudentCheckin } from '@/hooks/useStudentCheckin';
@@ -107,6 +108,8 @@ export default function StudentSchedulePage() {
   const [absenceReason, setAbsenceReason] = useState('');
   const [requestSubmitting, setRequestSubmitting] = useState(false);
   const [cancelingBookingId, setCancelingBookingId] = useState<string | null>(null);
+  // Modal xem thông tin lớp học
+  const [selectedClassForModal, setSelectedClassForModal] = useState<{ classId: string; slot?: ScheduleSlot } | null>(null);
   // Cửa sổ điểm danh do server quyết định; TKB chỉ hiển thị đúng trạng thái đó.
   const { sessionState, checking, checkinState, handleCheckin, refreshSessionState } =
     useStudentCheckin({ studentId: currentUser?.id });
@@ -461,9 +464,14 @@ export default function StudentSchedulePage() {
                                 >
                                   <div>
                                     <div className="flex items-center justify-between gap-1">
-                                      <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-pill bg-primary-soft text-primary-ink truncate max-w-[80px]">
+                                      <button
+                                        type="button"
+                                        onClick={() => setSelectedClassForModal({ classId: slot.classId, slot })}
+                                        className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-pill bg-primary-soft text-primary-ink truncate max-w-[80px] hover:bg-primary hover:text-white transition cursor-pointer"
+                                        title="Bấm để xem thông tin lớp"
+                                      >
                                         {slot.classId}
-                                      </span>
+                                      </button>
                                       {isOvernight && (
                                         <Badge tone="warning" className="text-[9px] px-1 py-0">
                                           qua đêm
@@ -483,7 +491,11 @@ export default function StudentSchedulePage() {
                                     <div className="text-[11px] font-mono font-bold text-primary tabular mt-1">
                                       {slot.startTime} – {slot.endTime}
                                     </div>
-                                    <div className="text-[12px] font-bold text-foreground leading-tight mt-0.5 truncate">
+                                    <div
+                                      onClick={() => setSelectedClassForModal({ classId: slot.classId, slot })}
+                                      className="text-[12px] font-bold text-foreground leading-tight mt-0.5 truncate cursor-pointer hover:text-primary hover:underline transition"
+                                      title="Bấm để xem thông tin lớp"
+                                    >
                                       {cls?.name || slot.classId}
                                     </div>
                                   </div>
@@ -632,6 +644,12 @@ export default function StudentSchedulePage() {
             </div>
           )}
         </Sheet>
+
+        <QuickClassModal
+          classId={selectedClassForModal?.classId || null}
+          slot={selectedClassForModal?.slot || null}
+          onClose={() => setSelectedClassForModal(null)}
+        />
 
         </main>
       </div>

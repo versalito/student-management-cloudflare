@@ -97,14 +97,15 @@ function AttendanceContent() {
     async function loadAttendance() {
       setLoading(true);
       try {
-        const [attRes, stRes] = await Promise.all([
-          fetch(`/api/attendance?slotId=${selectedSlotId}`),
-          fetch('/api/students?limit=400'),
-        ]);
+        const isAll = selectedSlotId === 'ALL';
+        const targetSlots = isAll ? slots : slots.filter((s) => s.id === selectedSlotId);
+        if (targetSlots.length === 0) {
+          setRecords([]);
+          return;
+        }
 
-        const attData = await attRes.json();
+        const stRes = await fetch('/api/students?limit=400');
         const stData = await stRes.json();
-
         const stMap: Record<string, any> = {};
         if (stData.students) {
           stData.students.forEach((s: any) => {
@@ -113,9 +114,15 @@ function AttendanceContent() {
         }
         setStudents(stMap);
 
-        // GET /api/attendance?slotId= đã tự ghép roster đúng theo CA (bao gồm học viên
-        // đổi ca nhanh trong ngày), nên dùng thẳng kết quả, không tự dựng draft từ cả lớp.
-        setRecords(attData.records || []);
+        const attResults = await Promise.all(
+          targetSlots.map(async (slot) => {
+            const res = await fetch(`/api/attendance?slotId=${slot.id}`);
+            const data = await res.json();
+            return (data.records || []) as AttendanceRecord[];
+          })
+        );
+
+        setRecords(attResults.flat());
       } catch (e) {
         console.error(e);
       } finally {
@@ -128,7 +135,7 @@ function AttendanceContent() {
   const handleStatusChange = (index: number, newStatus: AttendanceStatus) => {
     const updated = [...records];
     updated[index].status = newStatus;
-    const slot = slots.find((s) => s.id === selectedSlotId);
+    const slot = slots.find((s) => s.id === updated[index].scheduleSlotId) || slots.find((s) => s.id === selectedSlotId);
     if (newStatus === 'Có mặt') {
       updated[index].checkinTime = slot ? slot.startTime : '08:00';
     } else if (newStatus === 'Đi muộn') {
@@ -185,7 +192,7 @@ function AttendanceContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           records,
-          slotId: selectedSlotId,
+          slotId: selectedSlotId === 'ALL' ? undefined : selectedSlotId,
           updatedBy: currentUser?.id || '',
 
           userRole: 'TEACHER',
@@ -212,14 +219,17 @@ function AttendanceContent() {
   const countAbsentUnexcused = records.filter((r) => r.status === 'Vắng không phép').length;
   const countMakeup = records.filter((r) => r.status === 'Điểm danh bù').length;
 
-  const slotTabItems: TabItem<string>[] = slots.map((s) => {
-    const parts = (s.date || '').split('-');
-    const shortDate = parts.slice(1).join('/');
-    return {
-      value: s.id,
-      label: `${shortDate} • ${formatSlotShortLabel(s)} (${s.classId})`,
-    };
-  });
+  const slotTabItems: TabItem<string>[] = [
+    ...(slots.length > 1 ? [{ value: 'ALL', label: `Tất cả các ca (${slots.length})` }] : []),
+    ...slots.map((s) => {
+      const parts = (s.date || '').split('-');
+      const shortDate = parts.slice(1).join('/');
+      return {
+        value: s.id,
+        label: `${shortDate} • ${formatSlotShortLabel(s)} (${s.classId})`,
+      };
+    }),
+  ];
 
   const rowData: AttendanceRowItem[] = records.map((r, i) => ({
     ...r,
@@ -235,6 +245,25 @@ function AttendanceContent() {
         <span className="tabular text-muted-foreground text-xs">{r._index + 1}</span>
       ),
     },
+    ...(selectedSlotId === 'ALL'
+      ? [
+          {
+            key: 'slotInfo',
+            header: 'Ca học / Lớp',
+            render: (r: AttendanceRowItem) => {
+              const slot = slots.find((s) => s.id === r.scheduleSlotId);
+              return (
+                <div className="text-[12px] min-w-[120px]">
+                  <p className="font-semibold text-foreground truncate">{slot?.subject || r.classId}</p>
+                  <p className="text-[11px] text-muted-foreground tabular">
+                    {slot ? formatSlotShortLabel(slot) : r.scheduleSlotId}
+                  </p>
+                </div>
+              );
+            },
+          },
+        ]
+      : []),
     {
       key: 'student',
       header: 'Học viên',

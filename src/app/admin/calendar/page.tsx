@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Header } from '@/components/common/Header';
 import { RoleGuard } from '@/components/common/RoleGuard';
 import { ScheduleSlot, TimeShift, TIME_SHIFTS } from '@/types/schedule';
@@ -26,6 +27,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { SegmentedControl } from '@/components/ui/Tabs';
 import { Avatar } from '@/components/ui/Avatar';
 import { cn } from '@/lib/cn';
+import { QuickClassModal } from '@/components/common/QuickClassModal';
 import { 
   Calendar as CalendarIcon, 
   ChevronLeft, 
@@ -60,9 +62,11 @@ function dayLabelOf(dateStr: string): string {
   return `${WEEKDAY_LABELS[dow]} (${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')})`;
 }
 
-export default function AdminCalendarPage() {
+function AdminCalendarContent() {
+  const searchParams = useSearchParams();
+  const dateParam = searchParams.get('date');
   const toast = useToast();
-  const [selectedDate, setSelectedDate] = useState(getTodayDateStr());
+  const [selectedDate, setSelectedDate] = useState(dateParam || getTodayDateStr());
   const [slots, setSlots] = useState<ScheduleSlot[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [classes, setClasses] = useState<ClassEntity[]>([]);
@@ -77,6 +81,8 @@ export default function AdminCalendarPage() {
 
   // Modal xem chi tiết học sinh buổi học
   const [selectedSlotForStudents, setSelectedSlotForStudents] = useState<ScheduleSlot | null>(null);
+  // Modal xem thông tin lớp học
+  const [selectedClassForModal, setSelectedClassForModal] = useState<{ classId: string; slot?: ScheduleSlot } | null>(null);
 
   // Modal Thao tác hàng loạt (Bulk Operations)
   const [bulkModalType, setBulkModalType] = useState<'daily' | 'future' | 'generate' | null>(null);
@@ -466,8 +472,7 @@ export default function AdminCalendarPage() {
   };
 
   return (
-    <RoleGuard allowedRoles={['ADMIN']}>
-      <div className="flex-1 flex flex-col min-h-screen">
+    <div className="flex-1 flex flex-col min-h-screen">
         <Header 
           title="Lịch học trung tâm" 
           subtitle="Quản lý thời khóa biểu, ca dạy và phân bổ phòng học" 
@@ -746,9 +751,14 @@ export default function AdminCalendarPage() {
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0">
                                 <div className="flex items-center gap-1 flex-wrap">
-                                  <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-card text-foreground border border-line">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedClassForModal({ classId: slot.classId, slot })}
+                                    className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-card text-foreground border border-line hover:border-primary hover:text-primary transition cursor-pointer"
+                                    title="Xem thông tin lớp học"
+                                  >
                                     {slot.classId}
-                                  </span>
+                                  </button>
                                   <Badge tone={runtimeStatus.tone} dot={runtimeStatus.label === 'Đang diễn ra'} className="text-[9px] py-0 px-1.5">
                                     {runtimeStatus.label}
                                   </Badge>
@@ -762,7 +772,11 @@ export default function AdminCalendarPage() {
                                     <Badge tone="warning" className="text-[9px] py-0 px-1.5">qua đêm</Badge>
                                   )}
                                 </div>
-                                <h4 className="font-bold text-foreground text-[13px] leading-snug truncate mt-0.5">
+                                <h4
+                                  onClick={() => setSelectedClassForModal({ classId: slot.classId, slot })}
+                                  className="font-bold text-foreground text-[13px] leading-snug truncate mt-0.5 cursor-pointer hover:text-primary hover:underline transition"
+                                  title="Bấm để xem thông tin lớp học"
+                                >
                                   {cls?.name || slot.subject}
                                 </h4>
                                 {!compact && (
@@ -1299,7 +1313,22 @@ export default function AdminCalendarPage() {
             </div>
           )}
         </Sheet>
+
+        <QuickClassModal
+          classId={selectedClassForModal?.classId || null}
+          slot={selectedClassForModal?.slot || null}
+          onClose={() => setSelectedClassForModal(null)}
+        />
       </div>
+  );
+}
+
+export default function AdminCalendarPage() {
+  return (
+    <RoleGuard allowedRoles={['ADMIN']}>
+      <Suspense fallback={<div className="p-8 text-center text-sm text-muted-foreground">Đang tải lịch học...</div>}>
+        <AdminCalendarContent />
+      </Suspense>
     </RoleGuard>
   );
 }

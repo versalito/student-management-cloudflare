@@ -13,6 +13,7 @@ import { LinkButton } from '@/components/ui/LinkButton';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useToast } from '@/components/ui/Toast';
+import { QuickClassModal } from '@/components/common/QuickClassModal';
 import { getTodayDateStr, getTodayDateStrByDate, formatTimeHM, minutesTo24h } from '@/utils/date';
 import { formatClassTimeLabel } from '@/utils/schedule';
 import {
@@ -199,6 +200,8 @@ export default function TeacherSchedulePage() {
     }
   };
 
+  // Modal xem thông tin lớp học
+  const [selectedClassForModal, setSelectedClassForModal] = useState<{ classId: string; slot?: ScheduleSlot } | null>(null);
   const classMap = useMemo(() => new Map(allClasses.map((c) => [c.id, c])), [allClasses]);
 
   // Tuần hiện tại
@@ -638,8 +641,12 @@ export default function TeacherSchedulePage() {
                                       </span>
                                     </div>
 
-                                    <h4 className="font-bold text-foreground text-xs leading-snug mt-1 line-clamp-2">
-                                      {slot.subject}
+                                    <h4
+                                      onClick={() => setSelectedClassForModal({ classId: slot.classId, slot })}
+                                      className="font-bold text-foreground text-xs leading-snug mt-1 line-clamp-2 cursor-pointer hover:text-primary hover:underline transition"
+                                      title="Bấm để xem thông tin lớp học"
+                                    >
+                                      {cls?.name || slot.subject}
                                     </h4>
 
                                     <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-1 flex-wrap">
@@ -786,7 +793,11 @@ export default function TeacherSchedulePage() {
                                   </Badge>
                                 )}
                               </div>
-                              <h4 className="font-bold text-foreground text-[13px] leading-snug mt-0.5 truncate">
+                              <h4
+                                onClick={() => setSelectedClassForModal({ classId: slot.classId, slot })}
+                                className="font-bold text-foreground text-[13px] leading-snug mt-0.5 truncate cursor-pointer hover:text-primary hover:underline transition"
+                                title="Bấm để xem thông tin lớp học"
+                              >
                                 {cls?.name || slot.subject}
                               </h4>
                             </div>
@@ -919,6 +930,11 @@ export default function TeacherSchedulePage() {
             </section>
           )}
         </main>
+        <QuickClassModal
+          classId={selectedClassForModal?.classId || null}
+          slot={selectedClassForModal?.slot || null}
+          onClose={() => setSelectedClassForModal(null)}
+        />
       </div>
     </RoleGuard>
   );

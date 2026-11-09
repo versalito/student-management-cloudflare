@@ -140,8 +140,8 @@ function AdminAttendanceContent() {
 
         if (loadedSlots.length > 0) {
           const currentExists = loadedSlots.some((s) => s.id === selectedSlotId);
-          if (!currentExists) {
-            setSelectedSlotId(loadedSlots[0].id);
+          if (!currentExists && selectedSlotId !== 'ALL') {
+            setSelectedSlotId('ALL');
           }
         } else {
           setSelectedSlotId('');
@@ -158,65 +158,72 @@ function AdminAttendanceContent() {
   }, [selectedDate, selectedClassId]);
 
   // 3. Nạp sổ điểm danh cho ca đang chọn
+  // 3. Nạp sổ điểm danh cho ca đang chọn hoặc tất cả các ca
   useEffect(() => {
-    if (!selectedSlotId) {
+    if (!selectedSlotId || slots.length === 0) {
       setRecords([]);
       return;
     }
 
-    const currentSlot = slots.find((s) => s.id === selectedSlotId);
-    if (!currentSlot) return;
+    const isAllSlots = selectedSlotId === 'ALL';
+    const targetSlots = isAllSlots ? slots : slots.filter((s) => s.id === selectedSlotId);
+    if (targetSlots.length === 0) {
+      setRecords([]);
+      return;
+    }
 
-    async function loadSlotAttendance(slot: ScheduleSlot) {
+    async function loadSlotAttendance() {
       setLoadingAttendance(true);
       try {
-        const res = await fetch('/api/attendance?slotId=' + selectedSlotId);
-        const data = await res.json();
-        const existingRecords: AttendanceRecord[] = data.records || [];
+        const slotResults = await Promise.all(
+          targetSlots.map(async (slot) => {
+            const res = await fetch('/api/attendance?slotId=' + slot.id);
+            const data = await res.json();
+            const existingRecords: AttendanceRecord[] = data.records || [];
 
-        // API đã trả roster theo ca (kèm placeholder 'Chưa điểm danh').
-        // Chỉ dựng danh sách từ chính bản ghi ca, không trộn lại studentIds cấp lớp.
-        const allStudentIds = new Set<string>();
-        existingRecords.forEach((r) => allStudentIds.add(r.studentId));
+            const allStudentIds = new Set<string>();
+            existingRecords.forEach((r) => allStudentIds.add(r.studentId));
 
-        const mergedRecords: ExtendedAttendanceRecord[] = Array.from(allStudentIds).map((stId) => {
-          const student = studentsMap.get(stId);
-          const found = existingRecords.find((r) => r.studentId === stId);
+            return Array.from(allStudentIds).map((stId): ExtendedAttendanceRecord => {
+              const student = studentsMap.get(stId);
+              const found = existingRecords.find((r) => r.studentId === stId);
 
-          if (found) {
-            return {
-              ...found,
-              studentName: student?.name || 'Học viên ' + stId,
-              studentPhone: student?.phone || '-',
-            };
-          }
+              if (found) {
+                return {
+                  ...found,
+                  studentName: student?.name || 'Học viên ' + stId,
+                  studentPhone: student?.phone || '-',
+                };
+              }
 
-          return {
-            id: 'ATT_NEW_' + selectedSlotId + '_' + stId,
-            scheduleSlotId: selectedSlotId,
-            classId: slot.classId,
-            studentId: stId,
-            date: slot.date,
-            status: 'Có mặt',
-            checkinTime: slot.startTime ? slot.startTime + ':00' : '08:00:00',
-            updatedBy: actorId,
-            updatedAt: new Date().toISOString(),
-            method: 'MANUAL',
-            studentName: student?.name || 'Học viên ' + stId,
-            studentPhone: student?.phone || '-',
-          };
-        });
+              return {
+                id: 'ATT_NEW_' + slot.id + '_' + stId,
+                scheduleSlotId: slot.id,
+                classId: slot.classId,
+                studentId: stId,
+                date: slot.date,
+                status: 'Có mặt',
+                checkinTime: slot.startTime ? slot.startTime + ':00' : '08:00:00',
+                updatedBy: actorId,
+                updatedAt: new Date().toISOString(),
+                method: 'MANUAL',
+                studentName: student?.name || 'Học viên ' + stId,
+                studentPhone: student?.phone || '-',
+              };
+            });
+          })
+        );
 
-        setRecords(mergedRecords);
+        setRecords(slotResults.flat());
       } catch (err) {
         console.error('Lỗi khi tải chi tiết điểm danh:', err);
-        toast.error('Không nạp được sổ điểm danh của ca này');
+        toast.error('Không nạp được sổ điểm danh');
       } finally {
         setLoadingAttendance(false);
       }
     }
 
-    loadSlotAttendance(currentSlot);
+    loadSlotAttendance();
   }, [selectedSlotId, slots, studentsMap]);
 
   const counts = useMemo(() => {
@@ -340,12 +347,10 @@ function AdminAttendanceContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           records: cleanedRecords,
-          slotId: selectedSlotId,
-  
+          slotId: selectedSlotId === 'ALL' ? undefined : selectedSlotId,
           userRole: 'ADMIN',
         }),
       });
-
       const resData = await res.json();
       if (res.ok && resData.success) {
         toast.success('Đã lưu sổ điểm danh (' + cleanedRecords.length + ' học viên)');
@@ -499,6 +504,27 @@ function AdminAttendanceContent() {
         </button>
       ),
     },
+    ...(selectedSlotId === 'ALL' || selectedClassId === 'ALL'
+      ? [
+          {
+            key: 'slotInfo',
+            header: 'Ca học / Lớp',
+            hideOnMobile: true,
+            render: (rec: ExtendedAttendanceRecord) => {
+              const slot = slots.find((s) => s.id === rec.scheduleSlotId);
+              const cls = classes.find((c) => c.id === rec.classId);
+              return (
+                <div className="text-[12px] min-w-[130px]">
+                  <p className="font-semibold text-foreground truncate">{cls?.name || rec.classId}</p>
+                  <p className="text-[11px] text-muted-foreground tabular">
+                    {slot ? formatSlotTimeLabel(slot) : rec.scheduleSlotId}
+                  </p>
+                </div>
+              );
+            },
+          },
+        ]
+      : []),
     {
       key: 'grade',
       header: 'Lớp',
@@ -647,15 +673,27 @@ function AdminAttendanceContent() {
                 {slots.length === 0 ? (
                   <option value="">{loadingSlots ? 'Đang tải ca...' : 'Ngày này chưa có ca học'}</option>
                 ) : (
-                  slots.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {formatSlotTimeLabel(s)} · {s.subject} ({s.classId})
-                    </option>
-                  ))
+                  <>
+                    <option value="ALL">Tất cả các ca ({slots.length} ca)</option>
+                    {slots.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {formatSlotTimeLabel(s)} · {s.subject} ({s.classId})
+                      </option>
+                    ))}
+                  </>
                 )}
               </Select>
             </Field>
           </div>
+
+          {selectedSlotId === 'ALL' && slots.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-line flex flex-wrap items-center gap-x-5 gap-y-2 text-[13px]">
+              <Badge tone="primary">Tất cả các ca</Badge>
+              <span className="text-muted-foreground">
+                Tổng cộng <strong className="text-foreground">{slots.length}</strong> ca học trong ngày
+              </span>
+            </div>
+          )}
 
           {currentSlot && (
             <div className="mt-4 pt-4 border-t border-line flex flex-wrap items-center gap-x-5 gap-y-2 text-[13px]">
@@ -695,7 +733,7 @@ function AdminAttendanceContent() {
             <Button
               variant="secondary"
               icon={<PlusCircle size={16} />}
-              disabled={!selectedSlotId}
+              disabled={!currentSlot}
               onClick={() => openMakeupModalForStudent('')}
             >
               Điểm danh bù
@@ -709,11 +747,15 @@ function AdminAttendanceContent() {
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-[15px] font-bold text-foreground">
             Danh sách học viên
-            {currentSlot && (
+            {selectedSlotId === 'ALL' ? (
+              <span className="ml-2 text-[13px] font-normal text-muted-foreground">
+                Tất cả các ca ({slots.length} ca học)
+              </span>
+            ) : currentSlot ? (
               <span className="ml-2 text-[13px] font-normal text-muted-foreground">
                 {formatSlotShortLabel(currentSlot)} · {currentSlot.classId}
               </span>
-            )}
+            ) : null}
           </h2>
           <Badge tone="neutral">{records.length} học viên</Badge>
         </div>
