@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { ScheduleSlot, TeacherCheckinStatus } from '@/types/schedule';
-import { getTodayDateStr, getNowTimeStr, timeToMinutes } from '@/utils/date';
+import { getTodayDateStr, getNowTimeStr, timeToMinutes, daysBetween } from '@/utils/date';
 import { resolveScheduleSlotTimes } from '@/services/SlotTimeService';
 import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
 
@@ -178,7 +178,16 @@ export async function POST(request: Request) {
     }
 
     const todayStr = getTodayDateStr();
-    if (slot.date !== todayStr) {
+    const startMins = timeToMinutes(effectiveTimes.startTime);
+    const endRaw = timeToMinutes(effectiveTimes.endTime);
+    const isOvernight = startMins > endRaw;
+    const dayOffset = daysBetween(slot.date, todayStr);
+
+    // Ca dạy chỉ hợp lệ nếu diễn ra hôm nay:
+    // - Cùng ngày bắt đầu ca (dayOffset === 0)
+    // - Hoặc là ca qua đêm bắt đầu từ tối hôm qua (dayOffset === 1 && isOvernight)
+    const isDateValid = dayOffset === 0 || (dayOffset === 1 && isOvernight);
+    if (!isDateValid) {
       return NextResponse.json(
         { success: false, error: 'Chỉ chấm công được cho ca dạy hôm nay (' + todayStr + ')' },
         { status: 400 }
@@ -187,21 +196,15 @@ export async function POST(request: Request) {
 
     const nowTimeStr = getNowTimeStr();
     const nowMins = timeToMinutes(nowTimeStr);
-    const startMins = timeToMinutes(effectiveTimes.startTime);
-    const endMins = timeToMinutes(effectiveTimes.endTime);
-    const isOvernight = startMins > endMins;
+    const currentMins = dayOffset * 1440 + nowMins;
+    const endMins = isOvernight ? 1440 + endRaw : endRaw;
     const endMinsWithGrace = endMins + CHECKOUT_GRACE_MINUTES;
 
     // Vào ca: chỉ mở trong khoảng ca học (sớm tối đa EARLY_OPEN_MINUTES).
-    const inCheckinWindow = isOvernight
-      ? nowMins >= startMins - EARLY_OPEN_MINUTES || nowMins <= endMins
-      : nowMins >= startMins - EARLY_OPEN_MINUTES && nowMins <= endMins;
+    const inCheckinWindow = currentMins >= startMins - EARLY_OPEN_MINUTES && currentMins <= endMins;
 
     // Kết ca: cho phép muộn hơn giờ kết thúc tối đa CHECKOUT_GRACE_MINUTES để giáo viên kịp chốt ca.
-    const inCheckoutWindow = isOvernight
-      ? nowMins >= startMins || nowMins <= endMinsWithGrace
-      : nowMins >= startMins - EARLY_OPEN_MINUTES && nowMins <= endMinsWithGrace;
-
+    const inCheckoutWindow = currentMins >= startMins && currentMins <= endMinsWithGrace;
     if (action === 'CHECKIN' && !inCheckinWindow) {
       return NextResponse.json(
         {

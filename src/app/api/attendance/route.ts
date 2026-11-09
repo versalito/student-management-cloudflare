@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { repo } from '@/repositories';
 import { AttendanceRecord, AttendanceStatus } from '@/types/attendance';
-import { getTodayDateStr, getNowTimeStr, timeToMinutes, dateToDayOfWeek } from '@/utils/date';
+import { getTodayDateStr, getNowTimeStr, timeToMinutes, dateToDayOfWeek, daysBetween } from '@/utils/date';
 import { resolveScheduleSlotTimes } from '@/services/SlotTimeService';
 import { evaluateSessionWindow } from '@/services/StudentSessionService';
 import { authenticate, isSelfOrStaff } from '@/lib/auth/session';
@@ -262,21 +262,33 @@ export async function POST(request: Request) {
       const todayStr = getTodayDateStr();
       const nowTimeStr = getNowTimeStr();
 
-      if (slot.date !== todayStr) {
+      // Giờ thật lấy theo thứ tự: ca học (class_sections) → slot → lớp, đúng như
+      // ScheduleViewService dùng để tính `canCheckIn`. Đọc thẳng slot.startTime sẽ
+      // lệch với nút trên giao diện khi slot chưa lưu giờ.
+      const effective = await resolveScheduleSlotTimes(slot);
+
+      const dayOffset = daysBetween(slot.date, todayStr);
+      const isOvernight = timeToMinutes(effective.startTime) > timeToMinutes(effective.endTime);
+
+      // Ca học chỉ hợp lệ nếu diễn ra hôm nay:
+      // - Cùng ngày bắt đầu ca (dayOffset === 0)
+      // - Hoặc là ca qua đêm bắt đầu từ tối hôm qua (dayOffset === 1 && isOvernight)
+      const isDateValid = dayOffset === 0 || (dayOffset === 1 && isOvernight);
+      if (!isDateValid) {
         return NextResponse.json(
           { success: false, error: `Ca học diễn ra vào ngày ${slot.date}, hôm nay là ${todayStr}` },
           { status: 400 }
         );
       }
 
-      // Giờ thật lấy theo thứ tự: ca học (class_sections) → slot → lớp, đúng như
-      // ScheduleViewService dùng để tính `canCheckIn`. Đọc thẳng slot.startTime sẽ
-      // lệch với nút trên giao diện khi slot chưa lưu giờ.
-      const effective = await resolveScheduleSlotTimes(slot);
-
       const nowMins = timeToMinutes(nowTimeStr);
-      const startMins = timeToMinutes(effective.startTime);
-      const window = evaluateSessionWindow(effective.startTime, effective.endTime, nowMins);
+      const window = evaluateSessionWindow(
+        effective.startTime,
+        effective.endTime,
+        nowMins,
+        undefined,
+        dayOffset
+      );
 
       if (!window.open) {
         return NextResponse.json(
@@ -306,8 +318,9 @@ export async function POST(request: Request) {
       // Tính status theo mốc 30 phút:
       // Trong 30 phút đầu ca (từ startTime đến startTime + 30') -> 'Có mặt'
       // Sau 30 phút nhưng vẫn trong ca (đến endTime) -> 'Đi muộn'
-      const status: AttendanceStatus = (nowMins <= startMins + 30) ? 'Có mặt' : 'Đi muộn';
-
+      const startMins = timeToMinutes(effective.startTime);
+      const currentElapsedMins = dayOffset * 1440 + nowMins;
+      const status: AttendanceStatus = (currentElapsedMins <= startMins + 30) ? 'Có mặt' : 'Đi muộn';
       const newRecord: AttendanceRecord = {
         id: `ATT_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         scheduleSlotId: slot.id,

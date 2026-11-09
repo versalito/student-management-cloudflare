@@ -1,6 +1,6 @@
 import { repo } from '@/repositories';
 import { loadScheduleView } from '@/services/ScheduleViewService';
-import { getNowTimeStr, getTodayDateStr, getTodayDateStrByDate, timeToMinutes } from '@/utils/date';
+import { daysBetween, getNowTimeStr, getTodayDateStr, getTodayDateStrByDate, timeToMinutes } from '@/utils/date';
 import type { AttendanceRecord } from '@/types/attendance';
 import type { ScheduleSlotWithClassName } from '@/repositories/IRepository';
 import type { SessionStateSlot, SessionWindowStatus, StudentSessionState } from '@/types/session';
@@ -33,17 +33,47 @@ export function evaluateSessionWindow(
   startTime: string,
   endTime: string,
   nowMins: number,
-  earlyMinutes: number = EARLY_CHECKIN_MINUTES
+  earlyMinutes: number = EARLY_CHECKIN_MINUTES,
+  dayOffset?: number
 ): SessionWindowVerdict {
   const start = timeToMinutes(startTime);
-  const end = timeToMinutes(endTime);
-  const opens = start - earlyMinutes;
-  const overnight = end < start;
+  const endRaw = timeToMinutes(endTime);
+  const isOvernight = endRaw < start;
 
-  const open = overnight ? nowMins >= opens || nowMins <= end : nowMins >= opens && nowMins <= end;
+  // Khi có thông tin ngày (dayOffset): tính chính xác theo mốc phút từ 00:00 ngày bắt đầu ca.
+  // dayOffset = daysBetween(slot.date, today):
+  //   0: cùng ngày bắt đầu; 1: hôm sau (qua nửa đêm); < 0: ngày tương lai
+  if (dayOffset !== undefined) {
+    const end = isOvernight ? 1440 + endRaw : endRaw;
+    const opens = start - earlyMinutes;
+    const currentMins = dayOffset * 1440 + nowMins;
+
+    if (currentMins >= opens && currentMins <= end) {
+      return { open: true, status: 'open', reason: 'Đang trong ca' };
+    }
+
+    if (currentMins < opens) {
+      if (dayOffset < 0) {
+        return { open: false, status: 'not_open', reason: 'Chưa tới ngày học' };
+      }
+      const diff = opens - currentMins;
+      const suffix = earlyMinutes > 0 ? ` (mở sớm ${earlyMinutes} phút)` : '';
+      return {
+        open: false,
+        status: 'not_open',
+        reason: `Còn ${diff} phút nữa mới mở điểm danh${suffix}`,
+      };
+    }
+
+    return { open: false, status: 'ended', reason: 'Ca đã kết thúc' };
+  }
+
+  // Fallback khi không truyền dayOffset: giữ logic cũ (cho unit test hoặc caller không có ngày)
+  const opens = start - earlyMinutes;
+  const open = isOvernight ? nowMins >= opens || nowMins <= endRaw : nowMins >= opens && nowMins <= endRaw;
   if (open) return { open: true, status: 'open', reason: 'Đang trong ca' };
 
-  const beforeOpen = overnight ? nowMins > end && nowMins < opens : nowMins < opens;
+  const beforeOpen = isOvernight ? nowMins > endRaw && nowMins < opens : nowMins < opens;
   if (beforeOpen) {
     const suffix = earlyMinutes > 0 ? ` (mở sớm ${earlyMinutes} phút)` : '';
     return {
@@ -79,15 +109,14 @@ export function buildSessionState({
 
   const evaluate = (slot: ScheduleSlotWithClassName) => {
     const rec = recordMap.get(slot.id);
-    const win: SessionWindowVerdict =
-      slot.date === today
-        ? evaluateSessionWindow(slot.startTime, slot.endTime, nowMins)
-        : {
-            open: false,
-            status: slot.date > today ? 'not_open' : 'ended',
-            reason: slot.date > today ? 'Chưa tới ngày học' : 'Ca đã kết thúc',
-          };
-
+    const dayOffset = daysBetween(slot.date, today);
+    const win: SessionWindowVerdict = evaluateSessionWindow(
+      slot.startTime,
+      slot.endTime,
+      nowMins,
+      EARLY_CHECKIN_MINUTES,
+      dayOffset
+    );
     const state: SessionStateSlot = {
       id: slot.id,
       classId: slot.classId,
@@ -110,18 +139,24 @@ export function buildSessionState({
     .sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime))
     .map(evaluate);
 
-  const todaySessions = ordered.filter((e) => e.state.date === today);
+  // Ca hôm nay gồm ca có ngày bắt đầu là `today`, hoặc ca qua đêm từ hôm qua vẫn đang diễn ra hôm nay.
+  const todaySessions = ordered.filter(
+    (e) => e.state.date === today || (e.inWindow && daysBetween(e.state.date, today) === 1)
+  );
   // Buổi đang diễn ra vẫn là `current` kể cả khi đã điểm danh (để hiện badge).
-  const current = todaySessions.find((e) => e.inWindow)?.state ?? null;
+  const current = ordered.find((e) => e.inWindow)?.state ?? null;
 
   // Cửa sổ mở sớm 10 phút nên buổi hôm nay vừa vào `current` vẫn thoả "startTime > now".
   // Loại nó ra để dashboard không hiện cùng một buổi ở cả "đang diễn ra" lẫn "sắp tới".
   const upcoming = ordered.filter((e) => {
     if (current && e.state.id === current.id) return false;
-    return e.state.date > today || (e.state.date === today && timeToMinutes(e.state.startTime) > nowMins);
+    if (e.inWindow) return false;
+    const diff = daysBetween(e.state.date, today);
+    if (diff < 0) return true; // ngày tương lai (slot.date > today)
+    if (diff === 0) return timeToMinutes(e.state.startTime) > nowMins;
+    return false;
   });
   const next = upcoming[0]?.state ?? null;
-
   return {
     today,
     now,
@@ -141,12 +176,18 @@ export async function buildStudentSessionState(studentId: string): Promise<Stude
   const today = getTodayDateStr();
   const now = getNowTimeStr();
 
+  // Nạp từ hôm qua (-1 ngày) để bắt ca qua đêm bắt đầu tối hôm trước
+  // và kéo dài sang rạng sáng hôm nay.
+  const yesterdayDate = new Date(`${today}T00:00:00+07:00`);
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const yesterday = getTodayDateStrByDate(yesterdayDate);
+
   const horizonDate = new Date(`${today}T00:00:00+07:00`);
   horizonDate.setDate(horizonDate.getDate() + LOOKAHEAD_DAYS);
   const horizon = getTodayDateStrByDate(horizonDate);
 
   const [{ slots }, records] = await Promise.all([
-    loadScheduleView({ studentId, dateFrom: today, dateTo: horizon }),
+    loadScheduleView({ studentId, dateFrom: yesterday, dateTo: horizon }),
     repo.getAttendanceByStudentId(studentId),
   ]);
 

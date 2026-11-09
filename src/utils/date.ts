@@ -73,3 +73,20 @@ export function dateToDayOfWeek(dateStr: string): number | null {
   const jsDay = new Date(Date.UTC(year, month - 1, day)).getUTCDay(); // 0: CN, 1: T2 ... 6: T7
   return jsDay === 0 ? 8 : jsDay + 1;
 }
+
+/**
+ * Số ngày chênh lệch giữa hai chuỗi ngày YYYY-MM-DD: `toDate - fromDate`.
+ * Ví dụ:
+ * - daysBetween('2026-11-08', '2026-11-09') === 1 (hôm sau)
+ * - daysBetween('2026-11-08', '2026-11-08') === 0 (cùng ngày)
+ * - daysBetween('2026-11-09', '2026-11-08') === -1 (hôm trước)
+ */
+export function daysBetween(fromDate: string, toDate: string): number {
+  if (!fromDate || !toDate) return 0;
+  const [y1, m1, d1] = fromDate.trim().split('-').map(Number);
+  const [y2, m2, d2] = toDate.trim().split('-').map(Number);
+  if (!y1 || !m1 || !d1 || !y2 || !m2 || !d2) return 0;
+  const utc1 = Date.UTC(y1, m1 - 1, d1);
+  const utc2 = Date.UTC(y2, m2 - 1, d2);
+  return Math.round((utc2 - utc1) / 86400000);
+}

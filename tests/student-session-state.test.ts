@@ -68,6 +68,61 @@ describe('session-state: cửa sổ điểm danh do server quyết định', () 
     assert.equal(evaluateSessionWindow('00:00', '23:59', 23 * 60 + 59).open, true);
   });
 
+  it('ca qua đêm neo theo ngày: trước giờ bắt đầu là not_open, sang ngày hôm sau vẫn mở đến endTime', () => {
+    // Ca 22:00 -> 01:00 bắt đầu từ ngày 2026-11-08
+    // Vào sáng ngày 2026-11-08 (00:30): ca tối chưa diễn ra ⇒ not_open (dayOffset = 0)
+    assert.equal(evaluateSessionWindow('22:00', '01:00', 30, 10, 0).status, 'not_open');
+    assert.equal(evaluateSessionWindow('22:00', '01:00', 30, 10, 0).open, false);
+
+    // Tối ngày 2026-11-08 lúc 21:55: đã mở (mở sớm 10')
+    assert.equal(evaluateSessionWindow('22:00', '01:00', 21 * 60 + 55, 10, 0).status, 'open');
+
+    // Rạng sáng ngày 2026-11-09 lúc 00:30: vẫn đang trong ca (dayOffset = 1)
+    assert.equal(evaluateSessionWindow('22:00', '01:00', 30, 10, 1).status, 'open');
+    assert.equal(evaluateSessionWindow('22:00', '01:00', 30, 10, 1).open, true);
+
+    // Rạng sáng ngày 2026-11-09 lúc 01:05: ca đã kết thúc (dayOffset = 1)
+    assert.equal(evaluateSessionWindow('22:00', '01:00', 65, 10, 1).status, 'ended');
+    assert.equal(evaluateSessionWindow('22:00', '01:00', 65, 10, 1).open, false);
+  });
+
+  it('buildSessionState nhận diện ca qua đêm từ hôm qua là current khi rạng sáng hôm nay', () => {
+    const overnightSlot = slot({
+      id: 'SCH_OVERNIGHT',
+      date: '2026-11-08',
+      startTime: '22:00',
+      endTime: '01:00',
+    });
+    const state = buildSessionState({
+      slots: [overnightSlot],
+      records: [],
+      today: '2026-11-09',
+      now: '00:30',
+    });
+    assert.equal(state.current?.id, 'SCH_OVERNIGHT');
+    assert.equal(state.current?.canCheckIn, true);
+    assert.equal(state.current?.window, 'open');
+    assert.equal(state.todaySessions.length, 1);
+    assert.equal(state.todaySessions[0]?.id, 'SCH_OVERNIGHT');
+  });
+
+  it('buildSessionState đánh dấu ended cho ca qua đêm từ hôm qua khi đã quá endTime sáng nay', () => {
+    const overnightSlot = slot({
+      id: 'SCH_OVERNIGHT',
+      date: '2026-11-08',
+      startTime: '22:00',
+      endTime: '01:00',
+    });
+    const state = buildSessionState({
+      slots: [overnightSlot],
+      records: [],
+      today: '2026-11-09',
+      now: '01:15',
+    });
+    assert.equal(state.current, null);
+    assert.equal(state.todaySessions.length, 0); // không còn trong ca hôm nay
+  });
+
   it('cùng dữ liệu + cùng giờ server ⇒ cùng kết quả (không phụ thuộc múi giờ máy client)', () => {
     const slots = [slot({ id: 'SCH1' })];
     const a = buildSessionState({ slots, records: [], today: '2026-11-06', now: '19:00' });
