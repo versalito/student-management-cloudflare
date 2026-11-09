@@ -7,15 +7,7 @@ import {
   createSessionToken,
   getSessionSecret,
 } from '@/lib/auth/session';
-import {
-  LOGIN_RATE_LIMIT,
-  clearFailures,
-  clientIp,
-  getFailureCount,
-  rateLimitKey,
-  registerFailure,
-  tooManyAttemptsResponse,
-} from '@/lib/auth/rateLimit';
+import { clientIp } from '@/lib/auth/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,27 +43,16 @@ export async function POST(request: Request) {
     }
 
     const cleanUsername = username.trim();
-    // Khoá theo username (không chỉ IP) để chặn dò mật khẩu một tài khoản từ nhiều IP.
-    const limitKey = rateLimitKey('login', cleanUsername);
-    if ((await getFailureCount(limitKey)) >= LOGIN_RATE_LIMIT.maxFailures) {
-      return tooManyAttemptsResponse(LOGIN_RATE_LIMIT);
-    }
 
     const authService = new AuthService(repo);
     const authenticatedUser = await authService.authenticate(cleanUsername, password);
 
     if (!authenticatedUser || !authenticatedUser.isActive) {
-      const failures = await registerFailure(limitKey, LOGIN_RATE_LIMIT);
       console.warn(
-        `[AUTH] Đăng nhập thất bại cho "${cleanUsername}" từ ${clientIp(request)} (lần ${failures}/${LOGIN_RATE_LIMIT.maxFailures})`
+        `[AUTH] Đăng nhập thất bại cho "${cleanUsername}" từ ${clientIp(request)}`
       );
-      if (failures >= LOGIN_RATE_LIMIT.maxFailures) {
-        return tooManyAttemptsResponse(LOGIN_RATE_LIMIT);
-      }
       return genericError();
     }
-
-    await clearFailures(limitKey);
 
     const token = await createSessionToken({
       id: authenticatedUser.id,

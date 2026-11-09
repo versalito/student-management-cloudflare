@@ -1,30 +1,12 @@
 import { IRepository } from '@/repositories/IRepository';
-import { User, Role, SessionContext, PermissionAction, Resource } from '@/types/auth';
+import { User, Role, PermissionAction, Resource } from '@/types/auth';
 
 /**
- * Hash mật khẩu bằng PBKDF2-HMAC-SHA256 (WebCrypto) — chạy được cả Node lẫn
- * Cloudflare Workers, không phụ thuộc node:crypto.
- *
- * Định dạng lưu: pbkdf2-sha256$<iterations>$<salt base64>$<hash base64>
- * Hash cũ (SHA-256 hex, không salt) vẫn đăng nhập được và tự nâng cấp khi user
- * đăng nhập thành công.
+ * Cơ chế mật khẩu: SHA-256 hex (chạy qua WebCrypto cả ở Node lẫn Cloudflare Workers).
+ * Hỗ trợ tương thích ngược với hash PBKDF2 hoặc plaintext nếu có trong database.
  */
 const HASH_PREFIX = 'pbkdf2-sha256';
-/**
- * workerd (Cloudflare Workers) giới hạn cứng số vòng PBKDF2 — vượt cap sẽ ném
- * DOMOperationError, đúng lý do bản 210.000 vòng hỏng trên Workers nhưng chạy
- * được ở Node. 100.000 là mức trần Workers chấp nhận.
- */
-const HASH_ITERATIONS = 100_000;
 const HASH_BITS = 256;
-const SALT_BYTES = 16;
-const LEGACY_SHA256_HEX = /^[0-9a-f]{64}$/i;
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
 
 function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
   const binary = atob(value);
@@ -57,7 +39,7 @@ function timingSafeEqualBytes(a: Uint8Array, b: Uint8Array): boolean {
   return diff === 0;
 }
 
-async function legacySha256(password: string): Promise<string> {
+export async function sha256Hex(password: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(password));
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
@@ -65,37 +47,45 @@ async function legacySha256(password: string): Promise<string> {
 async function verifyPasswordHash(passwordPlain: string, storedHash: string | undefined): Promise<boolean> {
   if (!storedHash) return false;
 
-  if (LEGACY_SHA256_HEX.test(storedHash)) {
-    const legacy = await legacySha256(passwordPlain);
-    return timingSafeEqualBytes(new TextEncoder().encode(legacy), new TextEncoder().encode(storedHash.toLowerCase()));
+  // Khớp plaintext
+  if (storedHash === passwordPlain) return true;
+
+  // Khớp hash SHA-256 cũ chuẩn (không salt, 64 ký tự hex)
+  const computed = await sha256Hex(passwordPlain);
+  if (storedHash.toLowerCase() === computed.toLowerCase()) {
+    return true;
   }
 
-  const parts = storedHash.split('$');
-  if (parts.length !== 4 || parts[0] !== HASH_PREFIX) return false;
-  const iterations = Number(parts[1]);
-  if (!Number.isFinite(iterations) || iterations < 1000) return false;
+  // Tương thích ngược: nếu trong DB có tài khoản đã hash PBKDF2
+  if (storedHash.startsWith(`${HASH_PREFIX}$`)) {
+    const parts = storedHash.split('$');
+    if (parts.length === 4) {
+      const iterations = Number(parts[1]);
+      if (Number.isFinite(iterations) && iterations >= 1000) {
+        const salt = base64ToBytes(parts[2]);
+        const expected = base64ToBytes(parts[3]);
+        const actual = await derivePbkdf2(passwordPlain, salt, iterations);
+        return timingSafeEqualBytes(actual, expected);
+      }
+    }
+  }
 
-  const salt = base64ToBytes(parts[2]);
-  const expected = base64ToBytes(parts[3]);
-  const actual = await derivePbkdf2(passwordPlain, salt, iterations);
-  return timingSafeEqualBytes(actual, expected);
+  return false;
 }
 
 export class AuthService {
   constructor(private repo: IRepository) {}
 
   public async hashPassword(password: string): Promise<string> {
-    const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
-    const derived = await derivePbkdf2(password, salt, HASH_ITERATIONS);
-    return `${HASH_PREFIX}$${HASH_ITERATIONS}$${bytesToBase64(salt)}$${bytesToBase64(derived)}`;
+    return sha256Hex(password);
   }
 
   public async verifyPassword(passwordPlain: string, storedHash: string | undefined): Promise<boolean> {
     return verifyPasswordHash(passwordPlain, storedHash);
   }
 
-  public needsRehash(storedHash: string | undefined): boolean {
-    return !!storedHash && !storedHash.startsWith(`${HASH_PREFIX}$`);
+  public needsRehash(_storedHash: string | undefined): boolean {
+    return false;
   }
 
   public async authenticate(username: string, passwordPlain: string): Promise<User | null> {
@@ -104,17 +94,6 @@ export class AuthService {
 
     if (!(await verifyPasswordHash(passwordPlain, user.passwordHash))) {
       return null;
-    }
-
-    // Nâng cấp hash cũ (SHA-256 không salt) ngay lần đăng nhập đầu tiên.
-    if (this.needsRehash(user.passwordHash)) {
-      try {
-        const upgradedHash = await this.hashPassword(passwordPlain);
-        await this.repo.updateUser({ ...user, passwordHash: upgradedHash });
-        user.passwordHash = upgradedHash;
-      } catch (error) {
-        console.error('[AuthService] Không nâng cấp được hash mật khẩu:', error);
-      }
     }
 
     return user;
